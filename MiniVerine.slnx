@@ -1,0 +1,19 @@
+<Solution>
+  <Folder Name="/samples/" />
+  <Folder Name="/samples/Helpdesk/">
+    <Project Path="samples/Helpdesk/src/Helpdesk.Application/Helpdesk.Application.csproj" />
+    <Project Path="samples/Helpdesk/src/Helpdesk.Domain/Helpdesk.Domain.csproj" />
+    <Project Path="samples/Helpdesk/src/Helpdesk.Host/Helpdesk.Host.csproj" />
+    <Project Path="samples/Helpdesk/src/Helpdesk.Infrastructure/Helpdesk.Infrastructure.csproj" />
+  </Folder>
+  <Folder Name="/src/">
+    <Project Path="src/MiniVerine.Http/MiniVerine.Http.csproj" />
+    <Project Path="src/MiniVerine.Postgresql/MiniVerine.Postgresql.csproj" />
+    <Project Path="src/MiniVerine.RabbitMQ/MiniVerine.RabbitMQ.csproj" />
+    <Project Path="src/MiniVerine/MiniVerine.csproj" />
+  </Folder>
+  <Folder Name="/tests/">
+    <Project Path="tests/Helpdesk.Tests/Helpdesk.Tests.csproj" />
+    <Project Path="tests/MiniVerine.Tests/MiniVerine.Tests.csproj" />
+  </Folder>
+</Solution>
