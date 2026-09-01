@@ -15,20 +15,20 @@ sequenceDiagram
     participant Program
     participant Saga as OrderSaga
     participant Store as saga store
-    participant Payments as local://payments/
+    participant Payments as payments queue
     participant Clock as scheduled timeout
 
-    Note over Program,Clock: Target conversation (WolverineTest today; MiniVerine Application not built yet)
+    Note over Program,Clock: Target conversation. WolverineTest today. MiniVerine Application not built yet.
 
     Program->>Saga: Publish PlaceOrder
-    Saga->>Store: commit saga + ChargePayment envelope
+    Saga->>Store: commit saga and ChargePayment envelope
     Saga-->>Payments: cascade ChargePayment
-    Saga-->>Clock: cascade OrderTimeout (T+1m)
+    Saga-->>Clock: cascade OrderTimeout at T plus 1m
     Payments->>Payments: fail, retry, succeed
     Payments->>Saga: cascade PaymentCharged
     Saga->>Store: MarkCompleted
     Clock->>Saga: OrderTimeout later
-    Saga->>Saga: NotFound (already done)
+    Saga->>Saga: NotFound already done
 ```
 
 ## Layout
