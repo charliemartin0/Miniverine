@@ -261,7 +261,7 @@ Application will run validators at catalog build and at envelope construction. T
 <details>
 <summary>What is a *Plan class? Why empty sealed types with comments?</summary>
 
-Each feature folder’s `*Plan` is the spec for a slice that may not have runtime types yet: **Put here**, **Do not put here**, **Prove with**. Domain/Messaging and Domain/Sagas used to be Plan-only; they now have real types. Application/Bus is still a Plan.
+Each feature folder’s `*Plan` is the spec for a slice that may not have runtime types yet: **Put here**, **Do not put here**, **Prove with**. Domain, Discovery, Bus, and Mediator used to be Plan-only; they now have real types. Application/Cascades is still a Plan.
 
 The empty `sealed class` exists so the folder is a compilable C# project, not a markdown wiki. Implement against the comments. Do not invent a different split.
 
@@ -287,7 +287,7 @@ This repo is not a full domain model with repositories. The lesson is the messag
 <details>
 <summary>(planned) Invoke vs Publish — what is the difference?</summary>
 
-Both will end up in Execution (envelope, handler, error policy, cascades). They differ in **when the caller continues**. See `Application/Bus/BusPlan.cs` and `Application/Mediator/MediatorPlan.cs`.
+Both will end up in Execution (envelope, handler, error policy, cascades). They differ in **when the caller continues**. See `Application/Bus/IMessageBus.cs` and `Application/Mediator/Mediator.cs`.
 
 **`InvokeAsync`** is a function call through the bus. `await` does not finish until that handler returns. Retry-now / retry-with-cooldown happen inside that await. There is no queue in front of the caller. Use Invoke when the current request cannot continue until *this* handler has finished.
 
