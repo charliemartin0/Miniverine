@@ -9,9 +9,52 @@ namespace MiniVerine.Application.Discovery;
 /// </summary>
 public static class HandlerConvention
 {
+    private static readonly HashSet<string> HandlerNames =
+    [
+        "Handle",
+        "HandleAsync",
+        "Consume",
+        "ConsumeAsync",
+        "Start",
+        "StartAsync"
+    ];
+
     public static DiscoveredHandler? For(MethodInfo method)
     {
         ArgumentNullException.ThrowIfNull(method);
-        return null;
+
+        if (method.IsPublic is false)
+        {
+            return null;
+        }
+
+        if (!HandlerNames.Contains(method.Name))
+        {
+            return null;
+        }
+
+        if (method.IsGenericMethodDefinition is true)
+        {
+            return null;
+        }
+
+        ParameterInfo[] parameters = method.GetParameters();
+        if (parameters.Length == 0)
+        {
+            return null;
+        }
+
+        Type? handlerType = method.DeclaringType;
+        if (handlerType is null)
+        {
+            return null;
+        }
+
+        return new DiscoveredHandler(
+            method,
+            handlerType,
+            parameters[0].ParameterType,
+            method.IsStatic,
+            parameters[1..]);
     }
 }
