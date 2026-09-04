@@ -126,14 +126,14 @@ flowchart TB
     Med[Mediator Invoke]
     Cas[Cascades]
     Rt[Routing]
-    Ex[Execution + Middleware]
+    Ex[Execution and Middleware]
     Sch[Scheduling]
     Sg[Saga runtime]
     Tr[Tracking]
     Ports[Storage session: inbox outbox poison saga claim]
   end
   subgraph Mem["In-memory adapter"]
-    IM[Same ports — atomic; refused in Production]
+    IM[Same ports — atomic, refused in Production]
   end
   subgraph Prod["Production — MiniVerine.Postgresql"]
     EF[EF Core DbContext + Postgres]
@@ -157,9 +157,9 @@ flowchart LR
   Caller[Caller] --> Bus["IMessageBus\nInvoke | Publish"]
   Bus --> Catalog[MessageTypeCatalog]
   Catalog --> Env[Envelope]
-  Env --> Exec[Execution + Middleware]
+  Env --> Exec[Execution and Middleware]
   Exec -->|success| Cascades[Cascades / Outbox]
-  Exec -->|named failure| Poison[Poison store + kernel APIs]
+  Exec -->|named failure| Poison[Poison store and kernel APIs]
   Cascades --> Route[Routing]
   Route --> Local[Local queues]
   Route --> Rabbit[Rabbit adapter]
@@ -171,12 +171,12 @@ flowchart LR
 sequenceDiagram
   participant H as HTTP or caller
   participant B as Bus
-  participant S as Saga + session
+  participant S as Saga and session
   participant Q as Local or Rabbit
   participant P as Poison APIs
 
   H->>B: Publish PlaceOrder
-  B->>S: Start saga, commit saga + ChargePayment work-item
+  B->>S: Start saga, commit saga and ChargePayment work-item
   S-->>Q: cascade ChargePayment
   Q-->>Q: retry then succeed or poison
   Q->>S: PaymentCharged

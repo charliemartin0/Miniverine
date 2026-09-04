@@ -10,4 +10,6 @@ public sealed record DiscoveredHandler(
     Type HandlerType,
     Type MessageClrType,
     bool IsStatic,
-    IReadOnlyList<ParameterInfo> InjectionSlots);
+    IReadOnlyList<ParameterInfo> InjectionSlots,
+    Func<object?>? ResolveTarget = null,
+    bool Scheduled = false);
