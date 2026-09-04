@@ -1,0 +1,46 @@
+---
+description: Onion layers, ports-only Application, adapters stay out of core
+alwaysApply: true
+---
+
+# Clean architecture
+
+MiniVerine is onion: inner layers do not know outer ones. Read the code that exists; do not clone Wolverine’s catalog.
+
+## Layers
+
+| Layer | Lives in | May know | Must not |
+| --- | --- | --- | --- |
+| Domain | `src/MiniVerine/Domain` | nothing outer | I/O, handlers, reflection catalogs, adapter packages |
+| Application | `src/MiniVerine/Application` | Domain | Npgsql, Rabbit, HTTP, EF; no `ValueObjects/` folders |
+| Infrastructure | `src/MiniVerine/Infrastructure` | Application ports | adapter package refs (those belong in adapter projects) |
+| Adapters | `MiniVerine.Postgresql`, `.RabbitMQ`, `.Http` | MiniVerine core | leaking broker/DB types into core |
+
+`src/MiniVerine` must not ProjectReference adapter projects. FluentValidation is allowed in core; Npgsql stays in `MiniVerine.Postgresql`.
+
+## Taxonomy
+
+- `ValueObjects/` and Domain-shaped named vocabulary live under Domain only (`Envelope`, `Messaging`, `Sagas`, `Errors`).
+- Application owns ports, catalogs, and orchestration records at the feature-folder root (`Executor`, `DiscoveredHandler`, `IErrorQueue`).
+- Namespaces follow folders.
+
+```csharp
+// ❌ BAD — Application owning Domain vocabulary
+namespace MiniVerine.Application.Execution.ValueObjects;
+public sealed record Retry : ErrorAction;
+
+// ✅ GOOD — named recovery is Domain; Application applies it
+namespace MiniVerine.Domain.Errors.ValueObjects;
+public sealed record Retry : ErrorAction;
+```
+
+## Helpdesk sample
+
+- `Helpdesk.Domain`: no MiniVerine, no infra.
+- `Helpdesk.Application`: Domain + MiniVerine; messages and handlers.
+- `Helpdesk.Infrastructure`: Application + `MiniVerine.Postgresql`.
+- `Helpdesk.Host`: composition root only.
+
+## Messaging shape
+
+Handlers never call each other. They return messages. The bus wraps an `Envelope` and either `Invoke`s now or `Publish`es. Dependencies on handler types are constructor-only; method parameters are the message, `CancellationToken`, and optionally `Envelope`.
