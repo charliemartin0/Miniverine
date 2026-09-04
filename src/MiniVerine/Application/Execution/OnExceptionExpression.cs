@@ -51,9 +51,24 @@ public sealed class OnExceptionExpression
         return this;
     }
 
-    public OnExceptionExpression ScheduleRetry()
+    public OnExceptionExpression ScheduleRetry(params TimeSpan[] delays)
     {
-        _catalog.Register(_exceptionType, _messageType, new ScheduleRetry());
+        ArgumentNullException.ThrowIfNull(delays);
+        if (delays.Length == 0)
+        {
+            throw new ArgumentException("ScheduleRetry requires at least one delay.", nameof(delays));
+        }
+
+        foreach (TimeSpan delay in delays)
+        {
+            if (delay <= TimeSpan.Zero)
+            {
+                throw new ArgumentOutOfRangeException(nameof(delays), delay, "ScheduleRetry delay must be greater than zero.");
+            }
+
+            _catalog.Register(_exceptionType, _messageType, new ScheduleRetry(delay));
+        }
+
         return this;
     }
 

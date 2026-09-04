@@ -25,6 +25,32 @@ public sealed class ErrorValueObjectValidatorTests
     }
 
     [Fact]
+    public void zero_schedule_retry_is_rejected()
+    {
+        var result = new ScheduleRetryValidator().TestValidate(new ScheduleRetry(TimeSpan.Zero));
+
+        result.ShouldHaveValidationErrorFor(x => x.Delay);
+    }
+
+    [Fact]
+    public void negative_schedule_retry_is_rejected()
+    {
+        var result = new ScheduleRetryValidator().TestValidate(
+            new ScheduleRetry(TimeSpan.FromTicks(-1)));
+
+        result.ShouldHaveValidationErrorFor(x => x.Delay);
+    }
+
+    [Fact]
+    public void positive_schedule_retry_passes()
+    {
+        var result = new ScheduleRetryValidator().TestValidate(
+            new ScheduleRetry(TimeSpan.FromSeconds(5)));
+
+        result.ShouldNotHaveAnyValidationErrors();
+    }
+
+    [Fact]
     public void positive_cooldown_passes()
     {
         var result = new RetryWithCooldownValidator().TestValidate(

@@ -2,6 +2,7 @@ using MiniVerine.Application.Bus;
 using MiniVerine.Application.Cascades;
 using MiniVerine.Application.Discovery;
 using MiniVerine.Application.Execution;
+using MiniVerine.Application.Scheduling;
 using MiniVerine.Domain.Envelope;
 using MiniVerine.Domain.Envelope.ValueObjects;
 using MiniVerine.Domain.Messaging;
@@ -12,25 +13,44 @@ namespace MiniVerine.Application.Mediator;
 
 public sealed class Mediator : IMessageBus
 {
-    private readonly ICascadePublisher? _cascades;
     private readonly Executor _executor;
+    private readonly OutgoingDispatcher _dispatcher;
 
     public HandlerCatalog Catalog { get; }
 
     public Mediator(
         HandlerCatalog catalog,
         ICascadePublisher? cascades = null,
-        Executor? executor = null)
+        Executor? executor = null,
+        IScheduledEnvelopeHold? hold = null)
     {
         ArgumentNullException.ThrowIfNull(catalog);
         Catalog = catalog;
-        _cascades = cascades;
-        _executor = executor ?? new Executor(new ErrorPolicyCatalog());
+        IScheduledEnvelopeHold scheduled = hold ?? new InMemoryScheduledEnvelopeHold();
+        _dispatcher = new OutgoingDispatcher(scheduled, cascades);
+        _executor = executor ?? new Executor(new ErrorPolicyCatalog(), scheduled: scheduled);
     }
 
-    public async Task InvokeAsync(object message, CancellationToken cancellationToken = default)
+    public Task InvokeAsync(object message, CancellationToken cancellationToken = default) =>
+        InvokeAsync(message, new DeliveryOptions(), cancellationToken);
+
+    public async Task InvokeAsync(
+        object message,
+        DeliveryOptions options,
+        CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(message);
+        ArgumentNullException.ThrowIfNull(options);
+        if (options.Delay is not null && options.Until is not null)
+        {
+            throw new AmbiguousDeliveryOptions();
+        }
+
+        if (options.HasSchedule)
+        {
+            throw new DelayedInvokeNotSupported();
+        }
+
         Envelope envelope = EnvelopeForInvoke(message);
         HandlerLookup lookup = Catalog.Lookup(message.GetType());
         if (lookup is MissingHandler)
@@ -41,11 +61,15 @@ public sealed class Mediator : IMessageBus
 
         foreach (DiscoveredHandler handler in ((FoundHandlers)lookup).Handlers)
         {
-            object? result = await _executor.InvokeAsync(envelope, handler, cancellationToken);
+            object? result = await _executor.InvokeAsync(
+                envelope,
+                handler,
+                cancellationToken,
+                InvocationKind.Invoke);
             IReadOnlyList<object> outgoing = CascadingMessages.From(result);
             if (outgoing.Count > 0)
             {
-                _cascades?.Publish(outgoing);
+                _dispatcher.Dispatch(outgoing, envelope);
             }
         }
     }
@@ -54,7 +78,23 @@ public sealed class Mediator : IMessageBus
         throw new NotImplementedException();
 
     public Task PublishAsync(object message, CancellationToken cancellationToken = default) =>
+        PublishAsync(message, new DeliveryOptions(), cancellationToken);
+
+    public Task PublishAsync(
+        object message,
+        DeliveryOptions options,
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(message);
+        ArgumentNullException.ThrowIfNull(options);
+        cancellationToken.ThrowIfCancellationRequested();
+        if (_dispatcher.TryPark(message, options))
+        {
+            return Task.CompletedTask;
+        }
+
         throw new NotSupportedException("PublishAsync is implemented by Routing, not Mediator.");
+    }
 
     private static Envelope EnvelopeForInvoke(object message)
     {

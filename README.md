@@ -90,7 +90,7 @@ Prove-with for this folder: given a message, you can say which saga instance it 
 
 Named recovery vocabulary. `ErrorAction` (`Retry`, `RetryWithCooldown`, `MoveToErrorQueue`, `Requeue`, `ScheduleRetry`, `Discard`) and lookup results (`FoundErrorPolicy` / `MissingErrorPolicy`). Application/Execution owns the catalog, ports, and applying the chain.
 
-- Validators for cooldown delay (≥ 0), non-empty found chains, and missing exception type
+- Validators for cooldown delay (≥ 0), `ScheduleRetry` delay (> 0), non-empty found chains, and missing exception type
 - Catalog registration does not run these validators yet
 - `ValueObjects/` folders live under Domain only
 
@@ -99,6 +99,12 @@ Named recovery vocabulary. `ErrorAction` (`Retry`, `RetryWithCooldown`, `MoveToE
 Russian doll around Execution. `MiddlewareCatalog` holds outer (once per handler Invoke) and inner (once per attempt) instance wrappers. Targets: global, message CLR type, or handler CLR type. `IMessageMiddleware` must call `next` exactly once (`MiddlewareNextViolation` otherwise). Executor applies both layers; missing-handler is not wrapped. No first-party logging/validation/outbox middleware.
 
 Prove-with: a registered wrapper runs around `Handle` without the handler type knowing it exists.
+
+### Application/Scheduling
+
+Time is a message. `[Timeout]`, `DeliveryOptions` (delay or UTC `Until`), and `ScheduleRetry(delay)` stamp `Envelope.DeliverBy` and park in an in-memory hold. `IMessageScheduler.PlayDue(asOf)` drains due envelopes through Execution on the caller’s thread. Invoke is always now; delayed Invoke and `ScheduleRetry` on Invoke are named errors. No timer, no durable store.
+
+Prove-with: a 1-minute timeout can be played now without `Task.Delay`.
 
 ### Infrastructure/Hosting (partial)
 
@@ -116,9 +122,8 @@ Folders that are **Plan-only** are listed in a sensible build order. Do one slic
 4. **Cascades** — handler return values become outgoing messages after success. Failure publishes nothing.
 5. **Routing** — message type → destination URI (`local://payments/`). Not the queue implementation.
 6. **Execution** — wrap one handler call: attempts, retry policy, `IMissingHandler`.
-7. **Scheduling** — time is a message. `[Timeout]` / delay → `Envelope.DeliverBy`. Fast-forward for tests. No `Task.Delay` on a saga.
-8. **Application/Sagas** — load by id, run `Start` / `Handle` / `NotFound`. `ISagaStore` as a port. Domain owns identity; this folder owns the conversation.
-9. **Tracking** — `TrackActivity`-shaped session for tests (`PlayScheduledMessagesAsync`).
+7. **Application/Sagas** — load by id, run `Start` / `Handle` / `NotFound`. `ISagaStore` as a port. Domain owns identity; this folder owns the conversation.
+8. **Tracking** — `TrackActivity`-shaped session for tests (`PlayScheduledMessagesAsync`).
 
 ### Infrastructure
 
@@ -245,7 +250,7 @@ Identity is a contract on the message, not a vibe. See `SagaIdentityNaming.For(o
 
 Wolverine uses `OrderTimeout : TimeoutMessage(1.Minutes())`. Attribute arguments cannot be `TimeSpan`, so MiniVerine uses `[Timeout(Minutes = 1)]` on the message type: integers, then `Delay` as `TimeSpan`.
 
-The saga class is inert state (`MarkCompleted` / `IsCompleted`). It does not run a timer. Scheduling (planned) will set `Envelope.DeliverBy` from `SentAt + Delay` and deliver the envelope later like any other message.
+The saga class is inert state (`MarkCompleted` / `IsCompleted`). It does not run a timer. Scheduling sets `Envelope.DeliverBy` from `SentAt + Delay` and parks the envelope until `PlayDue`.
 
 `await Task.Delay(1.Minute())` inside `Start` would block a worker, die with the process, and be painful to test. `PlayScheduledMessagesAsync` (planned, Application/Tracking) fast-forwards the timeout without sleeping.
 
@@ -274,7 +279,7 @@ Application will run validators at catalog build and at envelope construction. T
 <details>
 <summary>What is a *Plan class? Why empty sealed types with comments?</summary>
 
-Each feature folder’s `*Plan` is the spec for a slice that may not have runtime types yet: **Put here**, **Do not put here**, **Prove with**. Domain, Discovery, Bus, Mediator, and Cascades used to be Plan-only; they now have real types. Application/Middleware is still a Plan.
+Each feature folder’s `*Plan` is the spec for a slice that may not have runtime types yet: **Put here**, **Do not put here**, **Prove with**. Domain, Discovery, Bus, Mediator, Cascades, Execution, Middleware, and Scheduling used to be Plan-only; they now have real types.
 
 The empty `sealed class` exists so the folder is a compilable C# project, not a markdown wiki. Implement against the comments. Do not invent a different split.
 

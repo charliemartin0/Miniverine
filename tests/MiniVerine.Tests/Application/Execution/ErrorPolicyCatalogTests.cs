@@ -90,18 +90,42 @@ public sealed class ErrorPolicyCatalogTests
     {
         var policies = new ErrorPolicyCatalog();
         policies.OnException<TimeoutException>().Requeue();
-        policies.OnException<InvalidOperationException>().ScheduleRetry();
+        policies.OnException<InvalidOperationException>().ScheduleRetry(TimeSpan.FromSeconds(5));
         policies.OnException<ArgumentException>().Discard();
 
         Assert.Equal(
             [new Requeue()],
             Assert.IsType<FoundErrorPolicy>(policies.For(typeof(TimeoutException))).Actions);
         Assert.Equal(
-            [new ScheduleRetry()],
+            [new ScheduleRetry(TimeSpan.FromSeconds(5))],
             Assert.IsType<FoundErrorPolicy>(policies.For(typeof(InvalidOperationException))).Actions);
         Assert.Equal(
             [new Discard()],
             Assert.IsType<FoundErrorPolicy>(policies.For(typeof(ArgumentException))).Actions);
+    }
+
+    [Fact]
+    public void schedule_retry_registers_one_action_per_delay()
+    {
+        var policies = new ErrorPolicyCatalog();
+        policies.OnException<TimeoutException>()
+            .ScheduleRetry(TimeSpan.FromSeconds(5), TimeSpan.FromSeconds(30));
+
+        Assert.Equal(
+            [new ScheduleRetry(TimeSpan.FromSeconds(5)), new ScheduleRetry(TimeSpan.FromSeconds(30))],
+            Assert.IsType<FoundErrorPolicy>(policies.For(typeof(TimeoutException))).Actions);
+    }
+
+    [Fact]
+    public void schedule_retry_rejects_empty_or_non_positive_delays()
+    {
+        var policies = new ErrorPolicyCatalog();
+
+        Assert.Throws<ArgumentException>(() => policies.OnException<TimeoutException>().ScheduleRetry());
+        Assert.Throws<ArgumentOutOfRangeException>(
+            () => policies.OnException<TimeoutException>().ScheduleRetry(TimeSpan.Zero));
+        Assert.Throws<ArgumentOutOfRangeException>(
+            () => policies.OnException<TimeoutException>().ScheduleRetry(TimeSpan.FromSeconds(-1)));
     }
 
     [Fact]

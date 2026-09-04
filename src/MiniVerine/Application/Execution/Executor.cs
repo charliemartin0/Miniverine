@@ -19,24 +19,28 @@ public sealed class Executor
     private readonly IErrorQueue? _errorQueue;
     private readonly IMissingHandler? _missingHandler;
     private readonly MiddlewareCatalog _middleware;
+    private readonly IScheduledEnvelopeHold? _scheduled;
 
     public Executor(
         ErrorPolicyCatalog policies,
         IErrorQueue? errorQueue = null,
         IMissingHandler? missingHandler = null,
-        MiddlewareCatalog? middleware = null)
+        MiddlewareCatalog? middleware = null,
+        IScheduledEnvelopeHold? scheduled = null)
     {
         ArgumentNullException.ThrowIfNull(policies);
         _policies = policies;
         _errorQueue = errorQueue;
         _missingHandler = missingHandler;
         _middleware = middleware ?? new MiddlewareCatalog();
+        _scheduled = scheduled;
     }
 
     public async Task<object?> InvokeAsync(
         Envelope envelope,
         DiscoveredHandler handler,
-        CancellationToken cancellationToken = default)
+        CancellationToken cancellationToken = default,
+        InvocationKind kind = InvocationKind.Invoke)
     {
         ArgumentNullException.ThrowIfNull(envelope);
         ArgumentNullException.ThrowIfNull(handler);
@@ -47,13 +51,14 @@ public sealed class Executor
                 MiddlewareLayer.Outer,
                 envelope,
                 handler,
-                () => InvokeWithRetries(envelope, handler, cancellationToken),
+                () => InvokeWithRetries(envelope, handler, cancellationToken, kind),
                 cancellationToken);
         }
         catch (Exception exception) when (
             exception is not HandlerFault
             && exception is not MiddlewareNextViolation
-            && exception is not OperationCanceledException)
+            && exception is not OperationCanceledException
+            && exception is not ScheduleRetryNotSupportedOnInvoke)
         {
             throw new HandlerFault(exception);
         }
@@ -62,7 +67,8 @@ public sealed class Executor
     private async Task<object?> InvokeWithRetries(
         Envelope envelope,
         DiscoveredHandler handler,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken,
+        InvocationKind kind)
     {
         Envelope current = envelope;
         while (true)
@@ -80,13 +86,19 @@ public sealed class Executor
             catch (Exception exception)
             {
                 Exception fault = Unwrap(exception);
-                if (fault is OperationCanceledException or MiddlewareNextViolation)
+                if (fault is OperationCanceledException or MiddlewareNextViolation or ScheduleRetryNotSupportedOnInvoke)
                 {
                     ExceptionDispatchInfo.Capture(fault).Throw();
                     throw;
                 }
 
-                current = await NextAttempt(current, handler, fault, cancellationToken);
+                Envelope? next = await NextAttempt(current, handler, fault, cancellationToken, kind);
+                if (next is null)
+                {
+                    return null;
+                }
+
+                current = next;
             }
         }
     }
@@ -102,11 +114,12 @@ public sealed class Executor
         return _missingHandler.HandleAsync(envelope, cancellationToken);
     }
 
-    private async Task<Envelope> NextAttempt(
+    private async Task<Envelope?> NextAttempt(
         Envelope current,
         DiscoveredHandler handler,
         Exception fault,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken,
+        InvocationKind kind)
     {
         ErrorPolicyLookup lookup = _policies.For(fault.GetType(), handler.MessageClrType);
         if (lookup is not FoundErrorPolicy found)
@@ -134,9 +147,32 @@ public sealed class Executor
             case MoveToErrorQueue:
                 _errorQueue?.Move(current);
                 throw new HandlerFault(fault);
+            case ScheduleRetry retry:
+                if (kind is InvocationKind.Invoke)
+                {
+                    throw new ScheduleRetryNotSupportedOnInvoke();
+                }
+
+                ParkScheduledRetry(current, retry);
+                return null;
             default:
                 throw new HandlerFault(fault);
         }
+    }
+
+    private void ParkScheduledRetry(Envelope current, ScheduleRetry retry)
+    {
+        if (_scheduled is null)
+        {
+            throw new HandlerFault(new InvalidOperationException("ScheduleRetry requires a scheduled envelope hold."));
+        }
+
+        Envelope parked = current with
+        {
+            Attempts = new Attempts(current.Attempts.Value + 1),
+            DeliverBy = new DeliverBy(DateTimeOffset.UtcNow + retry.Delay)
+        };
+        _scheduled.Park(parked);
     }
 
     private static Envelope WithNextAttempt(Envelope current) =>
