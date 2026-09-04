@@ -26,7 +26,7 @@ public sealed class ExecutorTests
         Envelope envelope = ChargePaymentEnvelope();
         ErrorPolicyCatalog policies = TimeoutRetriesThenErrorQueue();
         var errorQueue = new RecordingErrorQueue();
-        var executor = new Executor(policies, errorQueue);
+        var executor = new Executor(policies, errorQueue: errorQueue);
 
         object? result = await executor.InvokeAsync(envelope, HandlerFor<FlakyChargePaymentHandler>());
 
@@ -43,7 +43,7 @@ public sealed class ExecutorTests
         Envelope envelope = ChargePaymentEnvelope();
         ErrorPolicyCatalog policies = TimeoutRetriesThenErrorQueue();
         var errorQueue = new RecordingErrorQueue();
-        var executor = new Executor(policies, errorQueue);
+        var executor = new Executor(policies, errorQueue: errorQueue);
 
         HandlerFault fault = await Assert.ThrowsAsync<HandlerFault>(
             () => executor.InvokeAsync(envelope, HandlerFor<AlwaysTimeoutChargePaymentHandler>()));
@@ -60,7 +60,7 @@ public sealed class ExecutorTests
     {
         Envelope envelope = ChargePaymentEnvelope();
         var errorQueue = new RecordingErrorQueue();
-        var executor = new Executor(new ErrorPolicyCatalog(), errorQueue);
+        var executor = new Executor(new ErrorPolicyCatalog(), errorQueue: errorQueue);
 
         HandlerFault fault = await Assert.ThrowsAsync<HandlerFault>(
             () => executor.InvokeAsync(envelope, HandlerFor<AlwaysTimeoutChargePaymentHandler>()));
@@ -117,7 +117,7 @@ public sealed class ExecutorTests
         var policies = new ErrorPolicyCatalog();
         policies.OnException<TimeoutException>().Requeue();
         var errorQueue = new RecordingErrorQueue();
-        var executor = new Executor(policies, errorQueue);
+        var executor = new Executor(policies, errorQueue: errorQueue);
 
         HandlerFault fault = await Assert.ThrowsAsync<HandlerFault>(
             () => executor.InvokeAsync(envelope, HandlerFor<AlwaysTimeoutChargePaymentHandler>()));

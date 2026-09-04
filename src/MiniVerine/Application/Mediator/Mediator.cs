@@ -72,8 +72,7 @@ public sealed class Mediator : IMessageBus
                 : await _executor.InvokeAsync(
                     handlerEnvelope,
                     handler,
-                    cancellationToken,
-                    InvocationKind.Invoke);
+                    cancellationToken);
             IReadOnlyList<object> outgoing = CascadingMessages.From(result);
             if (outgoing.Count > 0)
             {
@@ -131,10 +130,8 @@ public sealed class Mediator : IMessageBus
             object? started = null;
             object? result = await _executor.InvokeAsync(
                 sagaEnvelope,
-                handler,
-                cancellationToken,
-                InvocationKind.Invoke,
-                () => started = Activator.CreateInstance(sagaType));
+                handler with { ResolveTarget = () => started = Activator.CreateInstance(sagaType) },
+                cancellationToken);
             _sagas.Save(sagaType, sagaId, (Saga)started!);
             return result;
         }
@@ -147,10 +144,8 @@ public sealed class Mediator : IMessageBus
         object? loaded = null;
         object? handled = await _executor.InvokeAsync(
             sagaEnvelope,
-            handler,
-            cancellationToken,
-            InvocationKind.Invoke,
-            () => loaded = _sagas.Load(sagaType, sagaId));
+            handler with { ResolveTarget = () => loaded = _sagas.Load(sagaType, sagaId) },
+            cancellationToken);
         _sagas.Save(sagaType, sagaId, (Saga)loaded!);
         return handled;
     }
@@ -169,10 +164,8 @@ public sealed class Mediator : IMessageBus
 
         return await _executor.InvokeAsync(
             envelope,
-            notFound,
-            cancellationToken,
-            InvocationKind.Invoke,
-            () => Activator.CreateInstance(handler.HandlerType));
+            notFound with { ResolveTarget = () => Activator.CreateInstance(handler.HandlerType) },
+            cancellationToken);
     }
 
     private static bool IsSagaHandler(DiscoveredHandler handler) =>

@@ -36,23 +36,30 @@ public sealed class Executor
         _scheduled = scheduled;
     }
 
-    public async Task<object?> InvokeAsync(
+    public Task<object?> InvokeAsync(
         Envelope envelope,
         DiscoveredHandler handler,
-        CancellationToken cancellationToken = default,
-        InvocationKind kind = InvocationKind.Invoke,
-        Func<object?>? resolveTarget = null)
+        CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(envelope);
         ArgumentNullException.ThrowIfNull(handler);
+        InvocationKind kind = handler.Scheduled ? InvocationKind.Scheduled : InvocationKind.Invoke;
+        return InvokeCore(envelope, handler, kind, cancellationToken);
+    }
 
+    private async Task<object?> InvokeCore(
+        Envelope envelope,
+        DiscoveredHandler handler,
+        InvocationKind kind,
+        CancellationToken cancellationToken)
+    {
         try
         {
             return await _middleware.InvokeAsync(
                 MiddlewareLayer.Outer,
                 envelope,
                 handler,
-                () => InvokeWithRetries(envelope, handler, cancellationToken, kind, resolveTarget),
+                () => InvokeWithRetries(envelope, handler, cancellationToken, kind),
                 cancellationToken);
         }
         catch (Exception exception) when (
@@ -69,8 +76,7 @@ public sealed class Executor
         Envelope envelope,
         DiscoveredHandler handler,
         CancellationToken cancellationToken,
-        InvocationKind kind,
-        Func<object?>? resolveTarget)
+        InvocationKind kind)
     {
         Envelope current = envelope;
         while (true)
@@ -82,7 +88,7 @@ public sealed class Executor
                     MiddlewareLayer.Inner,
                     current,
                     handler,
-                    () => InvokeOnce(current, handler, cancellationToken, resolveTarget),
+                    () => InvokeOnce(current, handler, cancellationToken),
                     cancellationToken);
             }
             catch (Exception exception)
@@ -183,14 +189,13 @@ public sealed class Executor
     private static async Task<object?> InvokeOnce(
         Envelope envelope,
         DiscoveredHandler handler,
-        CancellationToken cancellationToken,
-        Func<object?>? resolveTarget)
+        CancellationToken cancellationToken)
     {
         object? target = handler.IsStatic
             ? null
-            : resolveTarget is null
-                ? Activator.CreateInstance(handler.HandlerType)
-                : resolveTarget();
+            : handler.ResolveTarget is { } resolve
+                ? resolve()
+                : Activator.CreateInstance(handler.HandlerType);
         object? result;
         try
         {
