@@ -269,7 +269,7 @@ Application will run validators at catalog build and at envelope construction. T
 <details>
 <summary>What is a *Plan class? Why empty sealed types with comments?</summary>
 
-Each feature folder’s `*Plan` is the spec for a slice that may not have runtime types yet: **Put here**, **Do not put here**, **Prove with**. Domain, Discovery, Bus, and Mediator used to be Plan-only; they now have real types. Application/Cascades is still a Plan.
+Each feature folder’s `*Plan` is the spec for a slice that may not have runtime types yet: **Put here**, **Do not put here**, **Prove with**. Domain, Discovery, Bus, Mediator, and Cascades used to be Plan-only; they now have real types. Application/Middleware is still a Plan.
 
 The empty `sealed class` exists so the folder is a compilable C# project, not a markdown wiki. Implement against the comments. Do not invent a different split.
 
@@ -332,7 +332,7 @@ A cascade is a return value the bus will publish **after** the current handler s
 
 If the handler throws, nothing is emitted. That is the in-memory **outbox** (`Application/Cascades`). Durable outbox is the same rule persisted (`Infrastructure/Persistence`). Do not `InvokeAsync` the next saga step from inside a saga handler.
 
-Prove-with on the Plan: a throwing handler publishes nothing; a succeeding handler publishes exactly its return values, after it returns.
+Prove-with: a throwing handler publishes nothing; a succeeding handler publishes exactly its return values, after it returns. See `CascadingMessages` and `ICascadePublisher`.
 
 </details>
 
