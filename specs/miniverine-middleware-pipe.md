@@ -146,7 +146,7 @@ sequenceDiagram
     I->>H: Handle
     H-->>I: return or throw
     I-->>X: return or throw
-    Note over X: MiddlewareNextViolation and cancel rethrow<br/>else error policy; cooldown between attempts
+    Note over X: MiddlewareNextViolation and cancel rethrow<br/>else error policy. Cooldown between attempts
   end
   O-->>X: return or named throw
   X-->>M: return, HandlerFault, MiddlewareNextViolation, or cancel

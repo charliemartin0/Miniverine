@@ -90,9 +90,8 @@ public sealed class MessageScheduler : IMessageScheduler
         {
             object? result = await _executor.InvokeAsync(
                 envelope,
-                handler,
-                cancellationToken,
-                InvocationKind.Scheduled);
+                handler with { Scheduled = true },
+                cancellationToken);
             IReadOnlyList<object> outgoing = CascadingMessages.From(result);
             if (outgoing.Count > 0)
             {

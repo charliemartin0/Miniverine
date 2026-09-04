@@ -32,12 +32,13 @@ public sealed class ExecutorResolveTargetTests
 
         object? result = await executor.InvokeAsync(
             envelope,
-            handler,
-            CancellationToken.None,
-            resolveTarget: () =>
+            handler with
             {
-                calls++;
-                return new ResolveTargetFlakyHandler();
+                ResolveTarget = () =>
+                {
+                    calls++;
+                    return new ResolveTargetFlakyHandler();
+                }
             });
 
         Assert.Equal(3, calls);

@@ -20,7 +20,7 @@ sequenceDiagram
     participant Payments as payments queue
     participant Clock as scheduled timeout
 
-    Note over Program,Clock: Target conversation. WolverineTest today. MiniVerine Application exists (Discovery, Mediator, Execution, Scheduling, Sagas); local queues are still planned.
+    Note over Program,Clock: Target conversation. WolverineTest today. MiniVerine Application exists (Discovery, Mediator, Execution, Scheduling, Sagas). Local queues are still planned.
 
     Program->>Saga: Publish PlaceOrder
     Saga->>Store: commit saga and ChargePayment envelope

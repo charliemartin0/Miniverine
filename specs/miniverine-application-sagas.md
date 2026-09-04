@@ -158,7 +158,7 @@ flowchart TD
   StartQ{Start?}
   ExistsQ{Row exists?}
   Already[SagaAlreadyExists]
-  NewStart[New instance + Start]
+  NewStart[New instance and Start]
   OpenQ{Open row?}
   Handle[Handle on loaded instance]
   NotFoundQ{NotFound method?}
@@ -195,10 +195,10 @@ sequenceDiagram
 
   C->>M: Invoke PlaceOrder
   M->>S: saga path Start
-  S->>Store: Load OrderSaga + id
+  S->>Store: Load OrderSaga and id
   Store-->>S: missing
   S->>X: Start on new instance
-  X-->>S: return ChargePayment + timeout bodies
+  X-->>S: return ChargePayment and timeout bodies
   S->>Store: Save instance
   S->>Out: publish cascades
 
@@ -215,7 +215,7 @@ sequenceDiagram
   M->>S: saga path Handle
   S->>Store: Load
   Store-->>S: completed or missing
-  S->>X: NotFound(OrderTimeout) if present
+  S->>X: NotFound for OrderTimeout if present
   X-->>S: success
   Note over Store: NotFound does not persist
 ```

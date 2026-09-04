@@ -28,8 +28,7 @@ public sealed class ExecutorScheduleRetryTests
         await Assert.ThrowsAsync<ScheduleRetryNotSupportedOnInvoke>(
             () => executor.InvokeAsync(
                 ChargePaymentEnvelope(),
-                HandlerFor<ScheduleRetryChargeHandler>(),
-                kind: InvocationKind.Invoke));
+                HandlerFor<ScheduleRetryChargeHandler>()));
 
         Assert.Empty(hold.Peek());
         Assert.Equal([1], ScheduleRetryChargeHandler.SeenAttempts);
@@ -46,8 +45,7 @@ public sealed class ExecutorScheduleRetryTests
 
         object? result = await executor.InvokeAsync(
             envelope,
-            HandlerFor<ScheduleRetryChargeHandler>(),
-            kind: InvocationKind.Scheduled);
+            HandlerFor<ScheduleRetryChargeHandler>() with { Scheduled = true });
 
         Assert.Null(result);
         var parked = Assert.Single(hold.Peek());
