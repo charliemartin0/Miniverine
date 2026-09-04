@@ -1,6 +1,7 @@
 using System.Reflection;
 using System.Runtime.ExceptionServices;
 using MiniVerine.Application.Discovery;
+using MiniVerine.Application.Middleware;
 using MiniVerine.Domain.Envelope;
 using MiniVerine.Domain.Envelope.ValueObjects;
 using MiniVerine.Domain.Errors.ValueObjects;
@@ -8,23 +9,28 @@ using MiniVerine.Domain.Errors.ValueObjects;
 namespace MiniVerine.Application.Execution;
 
 /// <summary>
-/// Wrap one handler call: Attempts, typed error policy, missing handler. Fan-out is one wrap per handler.
+/// Wrap one handler call: Attempts, typed error policy, missing handler.
+/// Outer middleware around the retry loop; inner around each Handle. Fan-out is one wrap per handler.
+/// HandleMissingAsync is not wrapped.
 /// </summary>
 public sealed class Executor
 {
     private readonly ErrorPolicyCatalog _policies;
     private readonly IErrorQueue? _errorQueue;
     private readonly IMissingHandler? _missingHandler;
+    private readonly MiddlewareCatalog _middleware;
 
     public Executor(
         ErrorPolicyCatalog policies,
         IErrorQueue? errorQueue = null,
-        IMissingHandler? missingHandler = null)
+        IMissingHandler? missingHandler = null,
+        MiddlewareCatalog? middleware = null)
     {
         ArgumentNullException.ThrowIfNull(policies);
         _policies = policies;
         _errorQueue = errorQueue;
         _missingHandler = missingHandler;
+        _middleware = middleware ?? new MiddlewareCatalog();
     }
 
     public async Task<object?> InvokeAsync(
@@ -35,18 +41,46 @@ public sealed class Executor
         ArgumentNullException.ThrowIfNull(envelope);
         ArgumentNullException.ThrowIfNull(handler);
 
+        try
+        {
+            return await _middleware.InvokeAsync(
+                MiddlewareLayer.Outer,
+                envelope,
+                handler,
+                () => InvokeWithRetries(envelope, handler, cancellationToken),
+                cancellationToken);
+        }
+        catch (Exception exception) when (
+            exception is not HandlerFault
+            && exception is not MiddlewareNextViolation
+            && exception is not OperationCanceledException)
+        {
+            throw new HandlerFault(exception);
+        }
+    }
+
+    private async Task<object?> InvokeWithRetries(
+        Envelope envelope,
+        DiscoveredHandler handler,
+        CancellationToken cancellationToken)
+    {
         Envelope current = envelope;
         while (true)
         {
             cancellationToken.ThrowIfCancellationRequested();
             try
             {
-                return await InvokeOnce(current, handler, cancellationToken);
+                return await _middleware.InvokeAsync(
+                    MiddlewareLayer.Inner,
+                    current,
+                    handler,
+                    () => InvokeOnce(current, handler, cancellationToken),
+                    cancellationToken);
             }
             catch (Exception exception)
             {
                 Exception fault = Unwrap(exception);
-                if (fault is OperationCanceledException)
+                if (fault is OperationCanceledException or MiddlewareNextViolation)
                 {
                     ExceptionDispatchInfo.Capture(fault).Throw();
                     throw;

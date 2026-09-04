@@ -94,6 +94,12 @@ Named recovery vocabulary. `ErrorAction` (`Retry`, `RetryWithCooldown`, `MoveToE
 - Catalog registration does not run these validators yet
 - `ValueObjects/` folders live under Domain only
 
+### Application/Middleware
+
+Russian doll around Execution. `MiddlewareCatalog` holds outer (once per handler Invoke) and inner (once per attempt) instance wrappers. Targets: global, message CLR type, or handler CLR type. `IMessageMiddleware` must call `next` exactly once (`MiddlewareNextViolation` otherwise). Executor applies both layers; missing-handler is not wrapped. No first-party logging/validation/outbox middleware.
+
+Prove-with: a registered wrapper runs around `Handle` without the handler type knowing it exists.
+
 ### Infrastructure/Hosting (partial)
 
 `UseMiniVerine()` and `MiniVerineOptions` exist. The sample host starts and stops with no messages. Listeners, drain-on-stop, and handler-assembly options are still in `HostingPlan`.
@@ -110,27 +116,26 @@ Folders that are **Plan-only** are listed in a sensible build order. Do one slic
 4. **Cascades** — handler return values become outgoing messages after success. Failure publishes nothing.
 5. **Routing** — message type → destination URI (`local://payments/`). Not the queue implementation.
 6. **Execution** — wrap one handler call: attempts, retry policy, `IMissingHandler`.
-7. **Middleware** — Russian doll around Execution. Same handler programming model.
-8. **Scheduling** — time is a message. `[Timeout]` / delay → `Envelope.DeliverBy`. Fast-forward for tests. No `Task.Delay` on a saga.
-9. **Application/Sagas** — load by id, run `Start` / `Handle` / `NotFound`. `ISagaStore` as a port. Domain owns identity; this folder owns the conversation.
-10. **Tracking** — `TrackActivity`-shaped session for tests (`PlayScheduledMessagesAsync`).
+7. **Scheduling** — time is a message. `[Timeout]` / delay → `Envelope.DeliverBy`. Fast-forward for tests. No `Task.Delay` on a saga.
+8. **Application/Sagas** — load by id, run `Start` / `Handle` / `NotFound`. `ISagaStore` as a port. Domain owns identity; this folder owns the conversation.
+9. **Tracking** — `TrackActivity`-shaped session for tests (`PlayScheduledMessagesAsync`).
 
 ### Infrastructure
 
-11. **Hosting** — `IHostedService` starts listeners / durability agents and drains on `StopAsync`.
-12. **Serialization** — Envelope body ↔ bytes using Domain/Messaging type names. Unknown CLR type is a handled failure.
-13. **LocalQueues** — in-process queues that obey Routing destinations.
-14. **Transports** — `ITransport` / endpoint ports (`local://`, later `tcp://`). Rabbit lives in `MiniVerine.RabbitMQ`.
-15. **Persistence** — inbox / outbox / dead letter / saga store ports. In-memory first; Npgsql in `MiniVerine.Postgresql`.
-16. **Observability** — OpenTelemetry exporters, not the Execution policies themselves.
+10. **Hosting** — `IHostedService` starts listeners / durability agents and drains on `StopAsync`.
+11. **Serialization** — Envelope body ↔ bytes using Domain/Messaging type names. Unknown CLR type is a handled failure.
+12. **LocalQueues** — in-process queues that obey Routing destinations.
+13. **Transports** — `ITransport` / endpoint ports (`local://`, later `tcp://`). Rabbit lives in `MiniVerine.RabbitMQ`.
+14. **Persistence** — inbox / outbox / dead letter / saga store ports. In-memory first; Npgsql in `MiniVerine.Postgresql`.
+15. **Observability** — OpenTelemetry exporters, not the Execution policies themselves.
 
 ### Adapters and sample
 
-17. **MiniVerine.Postgresql** — Marten/Npgsql implementation of persistence ports.
-18. **MiniVerine.RabbitMQ** — broker transport.
-19. **MiniVerine.Http** — HTTP front door into the same Execution pipeline.
-20. **Helpdesk sample** — `PlaceOrder` / `ChargePayment` / `OrderSaga` against MiniVerine, matching `WolverineTest`.
-21. **Tests** — `MiniVerine.Tests` for domain (naming, catalog lookup, saga identity, envelope rules). `Helpdesk.Tests` for conversations once the bus exists.
+16. **MiniVerine.Postgresql** — Marten/Npgsql implementation of persistence ports.
+17. **MiniVerine.RabbitMQ** — broker transport.
+18. **MiniVerine.Http** — HTTP front door into the same Execution pipeline.
+19. **Helpdesk sample** — `PlaceOrder` / `ChargePayment` / `OrderSaga` against MiniVerine, matching `WolverineTest`.
+20. **Tests** — `MiniVerine.Tests` for domain (naming, catalog lookup, saga identity, envelope rules). `Helpdesk.Tests` for conversations once the bus exists.
 
 ## Start in this order
 
