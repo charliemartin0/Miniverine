@@ -1,6 +1,6 @@
 using System.Reflection;
 
-namespace MiniVerine.Application.Discovery.ValueObjects;
+namespace MiniVerine.Application.Discovery;
 
 /// <summary>
 /// A public handler method found by convention. Extra parameters are injection slots, not resolved here.

@@ -1,6 +1,8 @@
 using MiniVerine.Application.Bus;
 using MiniVerine.Application.Cascades;
 using MiniVerine.Application.Discovery;
+using MiniVerine.Application.Execution;
+using MiniVerine.Domain.Envelope;
 using MiniVerine.Tests.Domain;
 
 namespace MiniVerine.Tests.Application.Mediator;
@@ -46,9 +48,43 @@ public sealed class MediatorTests
         var cascades = new RecordingCascadePublisher();
         IMessageBus bus = new MiniVerine.Application.Mediator.Mediator(catalog, cascades);
 
-        await Assert.ThrowsAsync<TimeoutException>(() => bus.InvokeAsync(new PlaceOrder(1)));
+        HandlerFault fault = await Assert.ThrowsAsync<HandlerFault>(
+            () => bus.InvokeAsync(new PlaceOrder(1)));
 
+        Assert.IsType<TimeoutException>(fault.InnerException);
         Assert.Empty(cascades.Published);
+    }
+
+    [Fact]
+    public async Task invoke_retries_the_same_envelope_then_succeeds()
+    {
+        FlakyPlaceOrderHandler.SeenAttempts.Clear();
+        var catalog = new HandlerCatalog();
+        catalog.Scan(typeof(FlakyPlaceOrderHandler));
+        var policies = new ErrorPolicyCatalog();
+        policies.OnException<TimeoutException>().Retry().Retry().Then.MoveToErrorQueue();
+        var cascades = new RecordingCascadePublisher();
+        IMessageBus bus = new MiniVerine.Application.Mediator.Mediator(
+            catalog,
+            cascades,
+            new Executor(policies));
+
+        await bus.InvokeAsync(new PlaceOrder(1));
+
+        Assert.Equal([1, 2, 3], FlakyPlaceOrderHandler.SeenAttempts);
+        var payment = Assert.IsType<ChargePayment>(Assert.Single(cascades.Published));
+        Assert.Equal(1, payment.OrderId);
+    }
+
+    [Fact]
+    public async Task invoke_without_a_handler_throws_handler_not_found()
+    {
+        IMessageBus bus = new MiniVerine.Application.Mediator.Mediator(new HandlerCatalog());
+
+        HandlerNotFound missing = await Assert.ThrowsAsync<HandlerNotFound>(
+            () => bus.InvokeAsync(new PlaceOrder(1)));
+
+        Assert.Equal(typeof(PlaceOrder), missing.MessageType);
     }
 
     [Fact]
@@ -97,6 +133,22 @@ public sealed class ThrowingPlaceOrderHandler
     {
         _ = new ChargePayment(message.OrderId);
         throw new TimeoutException("Payment gateway timeout");
+    }
+}
+
+public sealed class FlakyPlaceOrderHandler
+{
+    public static List<int> SeenAttempts { get; } = [];
+
+    public ChargePayment Handle(PlaceOrder message, Envelope envelope)
+    {
+        SeenAttempts.Add(envelope.Attempts.Value);
+        if (envelope.Attempts.Value < 3)
+        {
+            throw new TimeoutException("Payment gateway timeout");
+        }
+
+        return new ChargePayment(message.OrderId);
     }
 }
 

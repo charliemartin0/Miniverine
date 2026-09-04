@@ -1,4 +1,4 @@
-namespace MiniVerine.Application.Discovery.ValueObjects;
+namespace MiniVerine.Application.Discovery;
 
 /// <summary>
 /// No handler method was discovered for this CLR message type. A handled result, not an exception.

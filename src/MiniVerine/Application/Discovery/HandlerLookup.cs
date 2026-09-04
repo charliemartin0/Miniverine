@@ -1,4 +1,4 @@
-namespace MiniVerine.Application.Discovery.ValueObjects;
+namespace MiniVerine.Application.Discovery;
 
 /// <summary>
 /// Result of looking up handlers for a message type. Found has methods; Missing does not.

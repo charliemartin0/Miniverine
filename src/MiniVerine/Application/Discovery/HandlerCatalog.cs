@@ -1,5 +1,4 @@
 using System.Reflection;
-using MiniVerine.Application.Discovery.ValueObjects;
 using MiniVerine.Domain.Messaging;
 
 namespace MiniVerine.Application.Discovery;
