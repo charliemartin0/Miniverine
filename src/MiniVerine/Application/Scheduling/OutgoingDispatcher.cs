@@ -20,12 +20,17 @@ public sealed class OutgoingDispatcher
 
     private readonly ICascadePublisher? _immediate;
     private readonly IScheduledEnvelopeHold _hold;
+    private readonly Action<object, Envelope>? _onImmediate;
 
-    public OutgoingDispatcher(IScheduledEnvelopeHold hold, ICascadePublisher? immediate = null)
+    public OutgoingDispatcher(
+        IScheduledEnvelopeHold hold,
+        ICascadePublisher? immediate = null,
+        Action<object, Envelope>? onImmediate = null)
     {
         ArgumentNullException.ThrowIfNull(hold);
         _hold = hold;
         _immediate = immediate;
+        _onImmediate = onImmediate;
     }
 
     public bool TryPark(object message, DeliveryOptions? options, Envelope? parent = null)
@@ -57,6 +62,14 @@ public sealed class OutgoingDispatcher
 
         if (immediate.Count > 0)
         {
+            if (_onImmediate is not null)
+            {
+                foreach (object message in immediate)
+                {
+                    _onImmediate(message, parent);
+                }
+            }
+
             _immediate?.Publish(immediate);
         }
     }
