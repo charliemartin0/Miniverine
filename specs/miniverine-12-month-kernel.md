@@ -2,6 +2,8 @@
 
 Locked 2026-09-01. Personality: **inspectable kernel** — tiny public API; catalogs, validators, and named errors are the brand. Rabbit, HTTP, and cron are adapters you can ignore.
 
+Amended 2026-09-04 by [Message scheduling and operations dashboard](miniverine-scheduling-dashboard-amendment.md). Where the documents conflict, the amendment governs scheduling and dashboard scope.
+
 This is the 12-month north star, not a single PR. Implementation follows README slice order plus the rigor tasks in [Implementation Tasks](#implementation-tasks). Do not treat this document as permission to clone Wolverine’s catalog.
 
 ---
