@@ -1,0 +1,82 @@
+using MiniVerine.Application.Discovery;
+using MiniVerine.Application.Execution;
+using MiniVerine.Application.Scheduling;
+using MiniVerine.Domain.Envelope;
+using MiniVerine.Domain.Errors.ValueObjects;
+using MiniVerine.Domain.Messaging;
+using MiniVerine.Domain.Messaging.ValueObjects;
+using MiniVerine.Tests.Domain;
+using MiniVerine.Tests.Domain.Envelope;
+
+namespace MiniVerine.Tests.Application.Execution;
+
+public sealed class ExecutorScheduleRetryTests
+{
+    public ExecutorScheduleRetryTests()
+    {
+        ScheduleRetryChargeHandler.SeenAttempts.Clear();
+    }
+
+    [Fact]
+    public async Task schedule_retry_on_invoke_is_a_named_error_and_does_not_park()
+    {
+        var hold = new InMemoryScheduledEnvelopeHold();
+        var policies = new ErrorPolicyCatalog();
+        policies.OnException<TimeoutException>().ScheduleRetry(TimeSpan.FromSeconds(5));
+        var executor = new Executor(policies, scheduled: hold);
+
+        await Assert.ThrowsAsync<ScheduleRetryNotSupportedOnInvoke>(
+            () => executor.InvokeAsync(
+                ChargePaymentEnvelope(),
+                HandlerFor<ScheduleRetryChargeHandler>(),
+                kind: InvocationKind.Invoke));
+
+        Assert.Empty(hold.Peek());
+        Assert.Equal([1], ScheduleRetryChargeHandler.SeenAttempts);
+    }
+
+    [Fact]
+    public async Task schedule_retry_on_scheduled_parks_the_same_envelope_with_attempts_incremented()
+    {
+        var hold = new InMemoryScheduledEnvelopeHold();
+        var policies = new ErrorPolicyCatalog();
+        policies.OnException<TimeoutException>().ScheduleRetry(TimeSpan.FromMinutes(1));
+        var executor = new Executor(policies, scheduled: hold);
+        Envelope envelope = ChargePaymentEnvelope();
+
+        object? result = await executor.InvokeAsync(
+            envelope,
+            HandlerFor<ScheduleRetryChargeHandler>(),
+            kind: InvocationKind.Scheduled);
+
+        Assert.Null(result);
+        var parked = Assert.Single(hold.Peek());
+        Assert.Equal(envelope.Id, parked.Id);
+        Assert.Equal(2, parked.Attempts.Value);
+        Assert.True(parked.DeliverBy.Value > DateTimeOffset.UtcNow);
+        Assert.Equal([1], ScheduleRetryChargeHandler.SeenAttempts);
+    }
+
+    private static Envelope ChargePaymentEnvelope() =>
+        EnvelopeFactory.Create(
+            message: new Message(new ChargePayment(1)),
+            messageType: MessageTypeNaming.For(typeof(ChargePayment)));
+
+    private static DiscoveredHandler HandlerFor<THandler>()
+    {
+        var catalog = new HandlerCatalog();
+        catalog.Scan(typeof(THandler));
+        return Assert.Single(catalog.Handlers);
+    }
+}
+
+public sealed class ScheduleRetryChargeHandler
+{
+    public static List<int> SeenAttempts { get; } = [];
+
+    public void Handle(ChargePayment payment, Envelope envelope)
+    {
+        SeenAttempts.Add(envelope.Attempts.Value);
+        throw new TimeoutException("Payment gateway timeout");
+    }
+}

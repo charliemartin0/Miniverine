@@ -1,6 +1,6 @@
 namespace MiniVerine.Domain.Errors.ValueObjects;
 
 /// <summary>
-/// Deliver the envelope later.
+/// Park the same envelope and deliver it later. Delay must be greater than zero.
 /// </summary>
-public sealed record ScheduleRetry : ErrorAction;
+public sealed record ScheduleRetry(TimeSpan Delay) : ErrorAction;
