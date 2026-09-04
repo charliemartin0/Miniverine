@@ -37,6 +37,8 @@ Handlers must not sleep. `[Timeout]`, a caller delay, and `ScheduleRetry` are me
 - `Requeue` / `Discard` Execution actions (still unused)
 - First-party cron adapter
 - Catch-all `catch (Exception)` in the scheduler
+- Reordering Executor optional constructor parameters so a positional hold compiles
+- Moving `InvocationKind` / target resolution onto `DiscoveredHandler` (not this construction amendment)
 
 **Deferred (named follow-up):**
 
@@ -61,6 +63,7 @@ Handlers must not sleep. `[Timeout]`, a caller delay, and `ScheduleRetry` are me
 - `OperationCanceledException` keeps today’s Execution rule: bubble, no `HandlerFault`, no poison
 - Retry-now / `RetryWithCooldown` stay **inside** Execution’s current attempt loop; they are not the scheduler
 - Cascades stay **after success**: throw → park nothing, publish nothing
+- Executor optional constructor order is frozen: `errorQueue`, `missingHandler`, `middleware`, then `scheduled` last. Do not insert the hold earlier to make a positional hold compile. Every hold argument is named `scheduled:`.
 
 ## 4. Decisions
 
@@ -86,6 +89,7 @@ Handlers must not sleep. `[Timeout]`, a caller delay, and `ScheduleRetry` are me
 | Immediate Publish workers | Still not this slice | Implement LocalQueues here so delayed-bypass actually runs handlers |
 | Handler pipe | Invoke restored onto Executor this slice. PlayDue reuses it (`InvocationKind.Scheduled`). PR #18 reflection Invoke is superseded | Two pipes; PlayDue via Mediator.InvokeAsync |
 | `ScheduleRetry` coupling | `IScheduledEnvelopeHold` port + `InvocationKind` on `Executor.InvokeAsync`. Invoke → `ScheduleRetryNotSupportedOnInvoke`, no park. Scheduled → park, not `HandlerFault` | Exception-as-control-flow; “hold is null means Invoke” |
+| Executor construction | Optional parameter order stays `errorQueue`, `missingHandler`, `middleware`, `scheduled` (last). Hold call sites MUST use `scheduled:`. The second positional argument remains the error queue. | Move hold to second; two constructors; take the hold off Executor; drop names and rely on position |
 | Cascades | One post-success dispatcher for Invoke and PlayDue. Immediate bodies → `ICascadePublisher`. Delayed → park envelopes. Interface unchanged | Duplicate split in PlayDue; change `ICascadePublisher` to envelopes |
 | Public delay API | `DeliveryOptions { TimeSpan? Delay, DateTimeOffset? Until }` on `InvokeAsync` and `PublishAsync`. Both set → `AmbiguousDeliveryOptions`. Invoke + any schedule → `DelayedInvokeNotSupported`. Lives in `Application/Bus` | Publish overloads only; Domain DTO; `DeliveryOptions` under Scheduling (Bus→Scheduling cycle) |
 | Parked identity | New `EnvelopeId`. Inherit `ConversationId`, `CorrelationId`, `SagaId` from parent Invoke envelope. Delayed Publish assigns new ids. `SentAt` = park time. `Destination` = `local://scheduled/` this slice | New conversation per timeout; reuse parent envelope |
@@ -121,7 +125,7 @@ PlayDue(asOf)
 ```mermaid
 flowchart TB
   subgraph accept ["Accept delayed work"]
-    Inv[Invoke + delay]
+    Inv[Invoke plus delay]
     Pub[Publish / cascade]
     SR[ScheduleRetry after Publish fault]
     Inv --> Err[Named error]
@@ -141,15 +145,15 @@ sequenceDiagram
   participant P as PlayDue
   participant X as Executor
 
-  H-->>C: success: ChargePayment + OrderTimeout
+  H-->>C: success ChargePayment and OrderTimeout
   C->>C: ChargePayment immediate
-  C->>S: park OrderTimeout DeliverBy=SentAt+1m
-  Note over H,X: Invoke already returned; timeout has not run
-  P->>S: snapshot DeliverBy <= asOf
+  C->>S: park OrderTimeout DeliverBy equals SentAt plus 1m
+  Note over H,X: Invoke already returned. Timeout has not run
+  P->>S: snapshot DeliverBy at or before asOf
   P->>X: InvokeAsync OrderTimeout envelope
   X-->>H: timeout Handle
   alt timeout handler ScheduleRetries
-    X->>S: same envelope Attempts+1 new DeliverBy
+    X->>S: same envelope Attempts plus 1 new DeliverBy
     Note over P: not in this snapshot
   else timeout handler cascades more delayed work
     X->>S: new envelopes parked
@@ -168,6 +172,7 @@ sequenceDiagram
 - Publish/worker/PlayDue path: on policy match, do not error-queue; park the same envelope.
 - Invoke path: policy match is a named error (do not park, do not cooldown-map).
 - Failed attempt counts: increment `Attempts` when parking.
+- Construction: Mediator’s default Executor and tests pass the hold as `scheduled:`. A positional hold in the second slot is CS1503 (`IScheduledEnvelopeHold` is not `IErrorQueue`), not a runtime mix-up. Restore the names; do not reorder optional parameters. This amendment does not change `InvokeAsync`, `InvocationKind`, or `DiscoveredHandler`.
 
 **Hold**
 
@@ -202,6 +207,9 @@ sequenceDiagram
 - MiniVerine SHALL NOT start a timer or call `Task.Delay` to wait for `DeliverBy`.
 - MiniVerine SHALL NOT persist the hold in this slice.
 - MiniVerine SHALL NOT require Application/Sagas for this slice to be considered done.
+- WHEN Executor is constructed with a hold, THE CALL SITE SHALL pass it as the named `scheduled` argument and SHALL NOT pass it as the second positional argument.
+- WHEN Executor is constructed with only an error queue, THE second positional argument MAY be that queue (unchanged).
+- MiniVerine SHALL NOT reorder Executor’s optional constructor parameters so that a positional hold compiles.
 
 ## 7. Risks & Mitigations
 
@@ -216,6 +224,7 @@ sequenceDiagram
 | Saga NotFound never proven | Deferred prove-with on SagasPlan, not a silent skip of this slice |
 | `ScheduleRetry` Domain shape change surprises Execution tests | 0.x; marker becomes `ScheduleRetry(TimeSpan)`; catalog tests update |
 | Catch-all in play loop | Forbidden; faults stay named / `HandlerFault` |
+| Positional `Executor(policies, hold)` binds the hold to `IErrorQueue` (CS1503) | Hold stays last; mandatory `scheduled:`; do not reorder optionals |
 
 ## 8. Rollout & Observability
 
@@ -275,12 +284,18 @@ sequenceDiagram
   - Files: `README.md`, `src/MiniVerine/Application/Scheduling/SchedulingPlan.cs`
   - Verify: README does not teach Plan-only Scheduling
 
+- [x] **T9 (P1)** — Executor construction names — Restore `scheduled:` at Mediator and hold-passing tests. Revert any local reorder that moved `scheduled` before `errorQueue`. Do not change `InvokeAsync` / `InvocationKind` / `DiscoveredHandler` in this task.
+  - Surfaced by: CS1503 `IScheduledEnvelopeHold` not assignable to `IErrorQueue?`
+  - Files: `Executor.cs` constructor only, `Mediator.cs`, `ExecutorScheduleRetryTests.cs`, `MessageSchedulerTests.cs`
+  - Verify: `dotnet test tests/MiniVerine.Tests`; no CS1503; constructor order matches origin/main (`errorQueue` second, `scheduled` last); grep that no `new Executor(` passes a hold without `scheduled:`
+
 ## STRYDER REVIEW REPORT
 
 | Review | Status | Findings |
 |--------|--------|----------|
 | Eng    | Cleared with locks applied to this spec | Complexity: proceeded as-specified. Arch: one Executor pipe; hold port + invocation kind; shared cascade dispatcher; `DeliveryOptions` on Bus; `PlayDue` on `IMessageScheduler`. Code: `ScheduleRetry(params TimeSpan[])`; no Application `ValueObjects/`. Tests: diagram in review message; inspectable peek. Perf: no hold cap this slice. |
+| Eng (construction amendment / T9) | Cleared with locks applied | Scope: restore `scheduled:` + origin/main ctor order only; do not reorder optionals; do not touch InvokeAsync/DiscoveredHandler. Tests: T9 verify = `dotnet test` + grep no positional hold. Perf: none. |
 
-**VERDICT:** ENG CLEARED — ready to implement
+**VERDICT:** ENG CLEARED — ready to implement T9
 
 **UNRESOLVED DECISIONS:** NO UNRESOLVED DECISIONS (spec §9 leftover is `InvokeAsync<TResult>`, deferred later slice)
