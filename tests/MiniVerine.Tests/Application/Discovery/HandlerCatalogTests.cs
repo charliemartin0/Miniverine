@@ -1,7 +1,6 @@
 using System.Reflection;
 using MiniVerine.Application.Discovery;
 using MiniVerine.Application.Discovery.Validators;
-using MiniVerine.Application.Discovery.ValueObjects;
 using MiniVerine.Domain.Messaging;
 using MiniVerine.Domain.Messaging.ValueObjects;
 using MiniVerine.Tests.Application.Discovery.Other;
@@ -171,7 +170,11 @@ public sealed class HandlerCatalogTests
     public void missing_handler_is_a_port_not_an_invoker()
     {
         Assert.True(typeof(IMissingHandler).IsInterface);
-        Assert.Empty(typeof(IMissingHandler).GetMethods());
+        MethodInfo method = Assert.Single(typeof(IMissingHandler).GetMethods());
+        Assert.Equal(nameof(IMissingHandler.HandleAsync), method.Name);
+        Assert.Equal(typeof(Task), method.ReturnType);
+        Assert.Equal(typeof(MiniVerine.Domain.Envelope.Envelope), method.GetParameters()[0].ParameterType);
+        Assert.Equal(typeof(CancellationToken), method.GetParameters()[1].ParameterType);
     }
 
     [Fact]

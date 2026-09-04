@@ -1,4 +1,4 @@
-namespace MiniVerine.Application.Discovery.ValueObjects;
+namespace MiniVerine.Application.Discovery;
 
 /// <summary>
 /// One or more handler methods were discovered for the message type. Fan-out is allowed.

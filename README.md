@@ -20,7 +20,7 @@ sequenceDiagram
     participant Payments as payments queue
     participant Clock as scheduled timeout
 
-    Note over Program,Clock: Target conversation. WolverineTest today. MiniVerine Application not built yet.
+    Note over Program,Clock: Target conversation. WolverineTest today. MiniVerine Application exists (Discovery, Mediator, Execution); sagas and queues are still planned.
 
     Program->>Saga: Publish PlaceOrder
     Saga->>Store: commit saga and ChargePayment envelope
@@ -38,7 +38,7 @@ sequenceDiagram
 ```
 MiniVerine/
   src/MiniVerine/
-    Domain/                      Envelope, wire names, saga identity — no I/O
+    Domain/                      Envelope, wire names, saga identity, named errors — no I/O
     Application/                 Invoke, cascades, routing, execution, sagas — ports only
     Infrastructure/              host, JSON, local queues, transport/persistence ports
   src/MiniVerine.Postgresql/     persistence adapter (empty)
@@ -85,6 +85,14 @@ Identity and timeout as data, not a running timer.
 - Validators for `SagaId` and `[Timeout]`
 
 Prove-with for this folder: given a message, you can say which saga instance it belongs to without I/O.
+
+### Domain/Errors
+
+Named recovery vocabulary. `ErrorAction` (`Retry`, `RetryWithCooldown`, `MoveToErrorQueue`, `Requeue`, `ScheduleRetry`, `Discard`) and lookup results (`FoundErrorPolicy` / `MissingErrorPolicy`). Application/Execution owns the catalog, ports, and applying the chain.
+
+- Validators for cooldown delay (≥ 0), non-empty found chains, and missing exception type
+- Catalog registration does not run these validators yet
+- `ValueObjects/` folders live under Domain only
 
 ### Infrastructure/Hosting (partial)
 
