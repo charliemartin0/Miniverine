@@ -2,7 +2,7 @@
 
 A Wolverine-shaped in-process bus, built in slices. This repo sits next to `WolverineTest` (the real-Wolverine learning sample), not as a dependency.
 
-**12-month product contract:** [specs/miniverine-12-month-kernel.md](specs/miniverine-12-month-kernel.md) — inspectable kernel (no source-gen), ports-first persistence, named errors. Rabbit/HTTP/cron are ignorable adapters. Do not treat this README’s slice list as permission to clone Wolverine’s full catalog.
+**Inspectable kernel:** no source-gen, ports-first persistence, named errors. Rabbit/HTTP/cron are ignorable adapters. Do not treat this README’s slice list as permission to clone Wolverine’s full catalog.
 
 Read the **code that exists**, then use the questions below. Answers are collapsed so you can try to explain each one yourself. Questions marked **(planned)** are in `*Plan` comments only — MiniVerine does not run that pipeline yet. Open `WolverineTest` when you want to see the finished conversation.
 
