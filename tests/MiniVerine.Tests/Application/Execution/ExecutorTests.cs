@@ -140,6 +140,44 @@ public sealed class ExecutorTests
     }
 
     [Fact]
+    public async Task observer_sees_attempts_1_2_3_then_success()
+    {
+        Envelope envelope = ChargePaymentEnvelope();
+        var observer = new RecordingAttemptObserver();
+        var executor = new Executor(TimeoutRetriesThenErrorQueue(), attempts: observer);
+
+        await executor.InvokeAsync(envelope, HandlerFor<FlakyChargePaymentHandler>());
+
+        Assert.Equal([1, 2, 3], observer.Attempts);
+        Assert.Null(observer.Exceptions[2]);
+        Assert.IsType<TimeoutException>(observer.Exceptions[0]);
+        Assert.IsType<TimeoutException>(observer.Exceptions[1]);
+    }
+
+    [Fact]
+    public async Task handler_fault_session_is_null_when_untracked()
+    {
+        Envelope envelope = ChargePaymentEnvelope();
+        var executor = new Executor(new ErrorPolicyCatalog());
+
+        HandlerFault fault = await Assert.ThrowsAsync<HandlerFault>(
+            () => executor.InvokeAsync(envelope, HandlerFor<AlwaysTimeoutChargePaymentHandler>()));
+
+        Assert.Null(fault.Session);
+    }
+
+    [Fact]
+    public async Task named_scheduled_argument_still_binds_the_hold_when_observer_is_last()
+    {
+        var hold = new MiniVerine.Application.Scheduling.InMemoryScheduledEnvelopeHold();
+        var executor = new Executor(new ErrorPolicyCatalog(), scheduled: hold, attempts: new RecordingAttemptObserver());
+
+        await executor.InvokeAsync(ChargePaymentEnvelope(), HandlerFor<SucceedingChargePaymentHandler>());
+
+        Assert.Empty(hold.Peek());
+    }
+
+    [Fact]
     public async Task missing_handler_without_a_port_throws_handler_not_found()
     {
         Envelope envelope = ChargePaymentEnvelope();
@@ -220,6 +258,19 @@ public sealed class RecordingErrorQueue : IErrorQueue
     public void Move(Envelope envelope)
     {
         Moved.Add(envelope);
+    }
+}
+
+public sealed class RecordingAttemptObserver : IHandlerAttemptObserver
+{
+    public List<int> Attempts { get; } = [];
+
+    public List<Exception?> Exceptions { get; } = [];
+
+    public void OnAttempt(Envelope envelope, DiscoveredHandler handler, Exception? exception)
+    {
+        Attempts.Add(envelope.Attempts.Value);
+        Exceptions.Add(exception);
     }
 }
 

@@ -1,8 +1,11 @@
+using MiniVerine.Application.Tracking;
+
 namespace MiniVerine.Application.Bus;
 
 /// <summary>
 /// Public facade handlers and the sample host talk to. Invoke waits for the handler;
-/// Publish accepts and lets go. Does not own threads or sockets. PlayDue lives on IMessageScheduler.
+/// Publish accepts and lets go. Tracked Invoke/Publish drain immediate cascades for tests.
+/// PlayDue lives on IMessageScheduler.
 /// </summary>
 public interface IMessageBus
 {
@@ -15,4 +18,18 @@ public interface IMessageBus
     Task PublishAsync(object message, CancellationToken cancellationToken = default);
 
     Task PublishAsync(object message, DeliveryOptions options, CancellationToken cancellationToken = default);
+
+    Task<TrackedSession> InvokeTrackedAsync(object message, CancellationToken cancellationToken = default);
+
+    Task<TrackedSession> InvokeTrackedAsync(
+        object message,
+        DeliveryOptions options,
+        CancellationToken cancellationToken = default);
+
+    Task<TrackedSession> PublishTrackedAsync(object message, CancellationToken cancellationToken = default);
+
+    Task<TrackedSession> PublishTrackedAsync(
+        object message,
+        DeliveryOptions options,
+        CancellationToken cancellationToken = default);
 }

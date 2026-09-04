@@ -2,6 +2,7 @@ using System.Reflection;
 using System.Runtime.ExceptionServices;
 using MiniVerine.Application.Discovery;
 using MiniVerine.Application.Middleware;
+using MiniVerine.Application.Tracking;
 using MiniVerine.Domain.Envelope;
 using MiniVerine.Domain.Envelope.ValueObjects;
 using MiniVerine.Domain.Errors.ValueObjects;
@@ -20,13 +21,15 @@ public sealed class Executor
     private readonly IMissingHandler? _missingHandler;
     private readonly MiddlewareCatalog _middleware;
     private readonly IScheduledEnvelopeHold? _scheduled;
+    private readonly IHandlerAttemptObserver? _attempts;
 
     public Executor(
         ErrorPolicyCatalog policies,
         IErrorQueue? errorQueue = null,
         IMissingHandler? missingHandler = null,
         MiddlewareCatalog? middleware = null,
-        IScheduledEnvelopeHold? scheduled = null)
+        IScheduledEnvelopeHold? scheduled = null,
+        IHandlerAttemptObserver? attempts = null)
     {
         ArgumentNullException.ThrowIfNull(policies);
         _policies = policies;
@@ -34,6 +37,7 @@ public sealed class Executor
         _missingHandler = missingHandler;
         _middleware = middleware ?? new MiddlewareCatalog();
         _scheduled = scheduled;
+        _attempts = attempts;
     }
 
     public Task<object?> InvokeAsync(
@@ -66,7 +70,9 @@ public sealed class Executor
             exception is not HandlerFault
             && exception is not MiddlewareNextViolation
             && exception is not OperationCanceledException
-            && exception is not ScheduleRetryNotSupportedOnInvoke)
+            && exception is not ScheduleRetryNotSupportedOnInvoke
+            && exception is not NestedTrackNotSupported
+            && exception is not TrackInProgress)
         {
             throw new HandlerFault(exception);
         }
@@ -84,22 +90,29 @@ public sealed class Executor
             cancellationToken.ThrowIfCancellationRequested();
             try
             {
-                return await _middleware.InvokeAsync(
+                object? result = await _middleware.InvokeAsync(
                     MiddlewareLayer.Inner,
                     current,
                     handler,
                     () => InvokeOnce(current, handler, cancellationToken),
                     cancellationToken);
+                _attempts?.OnAttempt(current, handler, exception: null);
+                return result;
             }
             catch (Exception exception)
             {
                 Exception fault = Unwrap(exception);
-                if (fault is OperationCanceledException or MiddlewareNextViolation or ScheduleRetryNotSupportedOnInvoke)
+                if (fault is OperationCanceledException
+                    or MiddlewareNextViolation
+                    or ScheduleRetryNotSupportedOnInvoke
+                    or NestedTrackNotSupported
+                    or TrackInProgress)
                 {
                     ExceptionDispatchInfo.Capture(fault).Throw();
                     throw;
                 }
 
+                _attempts?.OnAttempt(current, handler, fault);
                 Envelope? next = await NextAttempt(current, handler, fault, cancellationToken, kind);
                 if (next is null)
                 {

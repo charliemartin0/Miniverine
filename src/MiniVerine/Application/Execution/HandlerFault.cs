@@ -1,7 +1,10 @@
+using MiniVerine.Application.Tracking;
+
 namespace MiniVerine.Application.Execution;
 
 /// <summary>
 /// Named wrap of a handler throw. Inner exception is what Handle threw.
+/// Session is set on tracked waits; null when untracked.
 /// </summary>
 public sealed class HandlerFault : Exception
 {
@@ -10,4 +13,6 @@ public sealed class HandlerFault : Exception
     {
         ArgumentNullException.ThrowIfNull(innerException);
     }
+
+    public TrackedSession? Session { get; set; }
 }
