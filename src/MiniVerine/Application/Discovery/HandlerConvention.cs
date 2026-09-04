@@ -18,6 +18,9 @@ public static class HandlerConvention
         "StartAsync"
     ];
 
+    public static bool IsStart(string methodName) =>
+        methodName is "Start" or "StartAsync";
+
     public static DiscoveredHandler? For(MethodInfo method)
     {
         ArgumentNullException.ThrowIfNull(method);

@@ -20,7 +20,7 @@ sequenceDiagram
     participant Payments as payments queue
     participant Clock as scheduled timeout
 
-    Note over Program,Clock: Target conversation. WolverineTest today. MiniVerine Application exists (Discovery, Mediator, Execution); sagas and queues are still planned.
+    Note over Program,Clock: Target conversation. WolverineTest today. MiniVerine Application exists (Discovery, Mediator, Execution, Scheduling, Sagas); local queues are still planned.
 
     Program->>Saga: Publish PlaceOrder
     Saga->>Store: commit saga and ChargePayment envelope
@@ -79,7 +79,7 @@ Identity and timeout as data, not a running timer.
 
 - `SagaId` (empty string = not part of a saga)
 - `[SagaIdentity]` on a message property
-- `SagaIdentityNaming` — `[SagaIdentity]`, then `{SagaType}Id`, then `Id`
+- `SagaIdentityNaming` — `[SagaIdentity]`, then `{SagaType}Id`, then `Id`; `CanCorrelate(Type, Type)` is the same walk without a message instance
 - `[Timeout(Minutes = 1)]` delay metadata (`TimeSpan Delay`)
 - `Saga` base — `MarkCompleted` / `IsCompleted` only; no `Id` on the base
 - Validators for `SagaId` and `[Timeout]`
@@ -106,6 +106,12 @@ Time is a message. `[Timeout]`, `DeliveryOptions` (delay or UTC `Until`), and `S
 
 Prove-with: a 1-minute timeout can be played now without `Task.Delay`.
 
+### Application/Sagas
+
+Process-manager runtime on `Invoke`. `ISagaStore` loads/saves by saga type and `SagaId`. In-memory store clones on Save and Load. Mediator correlates, runs `Start` / `Handle`, and on miss runs `NotFound` (not a catalog handler) or throws `SagaInstanceNotFound`. Duplicate `Start` is `SagaAlreadyExists`. Uncorrelatable saga methods fail `Scan` with `InvalidHandlerSignature`.
+
+Prove-with: PaymentCharged loads the same instance Start created; after complete, timeout hits `NotFound` instead of failing.
+
 ### Infrastructure/Hosting (partial)
 
 `UseMiniVerine()` and `MiniVerineOptions` exist. The sample host starts and stops with no messages. Listeners, drain-on-stop, and handler-assembly options are still in `HostingPlan`.
@@ -122,8 +128,7 @@ Folders that are **Plan-only** are listed in a sensible build order. Do one slic
 4. **Cascades** — handler return values become outgoing messages after success. Failure publishes nothing.
 5. **Routing** — message type → destination URI (`local://payments/`). Not the queue implementation.
 6. **Execution** — wrap one handler call: attempts, retry policy, `IMissingHandler`.
-7. **Application/Sagas** — load by id, run `Start` / `Handle` / `NotFound`. `ISagaStore` as a port. Domain owns identity; this folder owns the conversation.
-8. **Tracking** — `TrackActivity`-shaped session for tests (`PlayScheduledMessagesAsync`).
+7. **Tracking** — `TrackActivity`-shaped session for tests (`PlayScheduledMessagesAsync`).
 
 ### Infrastructure
 
@@ -261,7 +266,7 @@ The saga class is inert state (`MarkCompleted` / `IsCompleted`). It does not run
 
 `OrderSaga` will declare `public int? Id { get; set; }`. Other sagas will use `Guid` or `string`. An `Id` on the MiniVerine base would force one CLR type on every saga.
 
-`MarkCompleted()` sets `IsCompleted`. It does not delete a Marten document. Application/Sagas will treat the flag as “this instance is finished”; Persistence will own the row. Domain/Sagas is data. Dispatch is not here.
+`MarkCompleted()` sets `IsCompleted`. It does not delete a Marten document. Application/Sagas treats the flag as “this instance is finished” (later Handle messages are a unified miss). Persistence will own the durable row. Domain/Sagas is data.
 
 </details>
 
@@ -380,33 +385,33 @@ The same `Envelope` comes back with `Attempts` 1, 2, 3; then error-queue if the 
 </details>
 
 <details>
-<summary>(planned) What is a saga doing that a chain of cascades does not?</summary>
+<summary>What is a saga doing that a chain of cascades does not?</summary>
 
 Cascades are “after this handler succeeds, emit these messages.” There is no state sitting around between them except whatever you put in the message bodies.
 
-A **saga** is state that lives across several messages for one business process: “order 1 is open until paid or until it times out.” Domain already has identity and `MarkCompleted`. Application/Sagas will load by id, run `Start` / `Handle` / `NotFound`. Persistence will store the row.
+A **saga** is state that lives across several messages for one business process: “order 1 is open until paid or until it times out.” Domain has identity and `MarkCompleted`. Application/Sagas loads by id, runs `Start` / `Handle` / `NotFound`. Persistence will store the durable row.
 
 Without a saga you could still cascade `ChargePayment`, but you would have nowhere honest to put “this order is still waiting.”
 
 </details>
 
 <details>
-<summary>(planned) Why does NotFound exist? Isn’t that just an error?</summary>
+<summary>Why does NotFound exist? Isn’t that just an error?</summary>
 
 After payment, `MarkCompleted()` finishes the saga. The timeout scheduled at start is **not cancelled**. A minute later it still arrives.
 
 If there is no `NotFound(OrderTimeout)`, “saga 1 is gone” is a failure. `NotFound` means “this message is harmless because the other path already finished.” Same for `PaymentCharged` if the timeout already won.
 
-That is normal in EDA: you design for messages that show up late, twice, or after the process is over. Prove-with on `SagasPlan`: after complete, timeout hits `NotFound` instead of failing.
+That is normal in EDA: you design for messages that show up late, twice, or after the process is over. Prove-with: after complete, timeout hits `NotFound` instead of failing.
 
 </details>
 
 <details>
-<summary>(planned) Why is there no PlaceOrderHandler?</summary>
+<summary>Why is there no PlaceOrderHandler?</summary>
 
-Once `OrderSaga.Start(PlaceOrder)` is wired with a real saga identity, `PlaceOrder` is the saga’s start message. A separate `Handle(PlaceOrder)` should not also run.
+Once `OrderSaga.Start(PlaceOrder)` is wired with a real saga identity, `PlaceOrder` is the saga’s start message. A separate `Handle(PlaceOrder)` on the same saga type is invalid at Scan.
 
-`Start` is the PlaceOrder handler. It cascades `ChargePayment` and the timeout message. One message in, one place that decides the next work. Discovery will treat `Start` as a handler convention.
+`Start` is the PlaceOrder handler. It cascades `ChargePayment` and the timeout message. One message in, one place that decides the next work. Discovery treats `Start` as a handler convention.
 
 </details>
 

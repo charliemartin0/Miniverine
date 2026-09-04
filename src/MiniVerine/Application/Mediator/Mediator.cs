@@ -2,11 +2,13 @@ using MiniVerine.Application.Bus;
 using MiniVerine.Application.Cascades;
 using MiniVerine.Application.Discovery;
 using MiniVerine.Application.Execution;
+using MiniVerine.Application.Sagas;
 using MiniVerine.Application.Scheduling;
 using MiniVerine.Domain.Envelope;
 using MiniVerine.Domain.Envelope.ValueObjects;
 using MiniVerine.Domain.Messaging;
 using MiniVerine.Domain.Messaging.ValueObjects;
+using MiniVerine.Domain.Sagas;
 using MiniVerine.Domain.Sagas.ValueObjects;
 
 namespace MiniVerine.Application.Mediator;
@@ -15,6 +17,7 @@ public sealed class Mediator : IMessageBus
 {
     private readonly Executor _executor;
     private readonly OutgoingDispatcher _dispatcher;
+    private readonly ISagaStore _sagas;
 
     public HandlerCatalog Catalog { get; }
 
@@ -22,13 +25,15 @@ public sealed class Mediator : IMessageBus
         HandlerCatalog catalog,
         ICascadePublisher? cascades = null,
         Executor? executor = null,
-        IScheduledEnvelopeHold? hold = null)
+        IScheduledEnvelopeHold? hold = null,
+        ISagaStore? sagas = null)
     {
         ArgumentNullException.ThrowIfNull(catalog);
         Catalog = catalog;
         IScheduledEnvelopeHold scheduled = hold ?? new InMemoryScheduledEnvelopeHold();
         _dispatcher = new OutgoingDispatcher(scheduled, cascades);
         _executor = executor ?? new Executor(new ErrorPolicyCatalog(), scheduled: scheduled);
+        _sagas = sagas ?? new InMemorySagaStore();
     }
 
     public Task InvokeAsync(object message, CancellationToken cancellationToken = default) =>
@@ -61,11 +66,14 @@ public sealed class Mediator : IMessageBus
 
         foreach (DiscoveredHandler handler in ((FoundHandlers)lookup).Handlers)
         {
-            object? result = await _executor.InvokeAsync(
-                envelope,
-                handler,
-                cancellationToken,
-                InvocationKind.Invoke);
+            Envelope handlerEnvelope = envelope;
+            object? result = IsSagaHandler(handler)
+                ? await InvokeSagaAsync(handlerEnvelope, handler, cancellationToken)
+                : await _executor.InvokeAsync(
+                    handlerEnvelope,
+                    handler,
+                    cancellationToken,
+                    InvocationKind.Invoke);
             IReadOnlyList<object> outgoing = CascadingMessages.From(result);
             if (outgoing.Count > 0)
             {
@@ -95,6 +103,80 @@ public sealed class Mediator : IMessageBus
 
         throw new NotSupportedException("PublishAsync is implemented by Routing, not Mediator.");
     }
+
+    private async Task<object?> InvokeSagaAsync(
+        Envelope envelope,
+        DiscoveredHandler handler,
+        CancellationToken cancellationToken)
+    {
+        cancellationToken.ThrowIfCancellationRequested();
+        object message = envelope.Message.Value;
+        Type sagaType = handler.HandlerType;
+        SagaId sagaId = SagaIdentityNaming.For(message, sagaType);
+        if (string.IsNullOrEmpty(sagaId.Value))
+        {
+            throw new SagaIdRequired(sagaType, message.GetType());
+        }
+
+        Envelope sagaEnvelope = envelope with { SagaId = sagaId };
+        Saga? row = _sagas.Load(sagaType, sagaId);
+
+        if (HandlerConvention.IsStart(handler.Method.Name))
+        {
+            if (row is not null)
+            {
+                throw new SagaAlreadyExists(sagaType, sagaId);
+            }
+
+            object? started = null;
+            object? result = await _executor.InvokeAsync(
+                sagaEnvelope,
+                handler,
+                cancellationToken,
+                InvocationKind.Invoke,
+                () => started = Activator.CreateInstance(sagaType));
+            _sagas.Save(sagaType, sagaId, (Saga)started!);
+            return result;
+        }
+
+        if (row is null || row.IsCompleted)
+        {
+            return await InvokeNotFoundAsync(sagaEnvelope, handler, sagaId, cancellationToken);
+        }
+
+        object? loaded = null;
+        object? handled = await _executor.InvokeAsync(
+            sagaEnvelope,
+            handler,
+            cancellationToken,
+            InvocationKind.Invoke,
+            () => loaded = _sagas.Load(sagaType, sagaId));
+        _sagas.Save(sagaType, sagaId, (Saga)loaded!);
+        return handled;
+    }
+
+    private async Task<object?> InvokeNotFoundAsync(
+        Envelope envelope,
+        DiscoveredHandler handler,
+        SagaId sagaId,
+        CancellationToken cancellationToken)
+    {
+        DiscoveredHandler? notFound = NotFoundConvention.For(handler.HandlerType, handler.MessageClrType);
+        if (notFound is null)
+        {
+            throw new SagaInstanceNotFound(handler.HandlerType, sagaId, handler.MessageClrType);
+        }
+
+        return await _executor.InvokeAsync(
+            envelope,
+            notFound,
+            cancellationToken,
+            InvocationKind.Invoke,
+            () => Activator.CreateInstance(handler.HandlerType));
+    }
+
+    private static bool IsSagaHandler(DiscoveredHandler handler) =>
+        handler.HandlerType != typeof(Saga) && handler.HandlerType.IsAssignableTo(typeof(Saga));
 
     private static Envelope EnvelopeForInvoke(object message)
     {

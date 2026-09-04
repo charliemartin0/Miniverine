@@ -76,10 +76,23 @@ public sealed class SagaIdentityNamingTests
     }
 
     [Fact]
+    public void can_correlate_matches_the_property_walk_without_a_message_instance()
+    {
+        Assert.True(SagaIdentityNaming.CanCorrelate(typeof(PlaceOrder), typeof(OrderSaga)));
+        Assert.True(SagaIdentityNaming.CanCorrelate(typeof(MessageWithOrderSagaId), typeof(OrderSaga)));
+        Assert.True(SagaIdentityNaming.CanCorrelate(typeof(MessageWithId), typeof(OrderSaga)));
+        Assert.True(SagaIdentityNaming.CanCorrelate(typeof(OrderTimeout), typeof(OrderSaga)));
+        Assert.False(SagaIdentityNaming.CanCorrelate(typeof(ChargePayment), typeof(OrderSaga)));
+        Assert.False(SagaIdentityNaming.CanCorrelate(typeof(UnaliasedMessage), typeof(OrderSaga)));
+    }
+
+    [Fact]
     public void null_message_or_saga_type_throws()
     {
         Assert.Throws<ArgumentNullException>(() => SagaIdentityNaming.For(null!, typeof(OrderSaga)));
         Assert.Throws<ArgumentNullException>(() => SagaIdentityNaming.For(new PlaceOrder(1), null!));
+        Assert.Throws<ArgumentNullException>(() => SagaIdentityNaming.CanCorrelate(null!, typeof(OrderSaga)));
+        Assert.Throws<ArgumentNullException>(() => SagaIdentityNaming.CanCorrelate(typeof(PlaceOrder), null!));
     }
 
     private sealed record NullableSagaKey
