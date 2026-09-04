@@ -1,5 +1,6 @@
 using System.Reflection;
 using MiniVerine.Domain.Messaging;
+using MiniVerine.Domain.Sagas;
 
 namespace MiniVerine.Application.Discovery;
 
@@ -49,16 +50,35 @@ public sealed class HandlerCatalog
             return;
         }
 
-        foreach (MethodInfo method in handlerType.GetMethods(HandlerMethods))
+        try
         {
-            DiscoveredHandler? discovered = HandlerConvention.For(method);
-            if (discovered is null)
+            List<DiscoveredHandler> discovered = [];
+            foreach (MethodInfo method in handlerType.GetMethods(HandlerMethods))
             {
-                continue;
+                DiscoveredHandler? handler = HandlerConvention.For(method);
+                if (handler is null)
+                {
+                    continue;
+                }
+
+                discovered.Add(handler);
             }
 
-            _handlers.Add(discovered);
-            MessageTypes.Register(discovered.MessageClrType);
+            if (IsSagaHandlerType(handlerType))
+            {
+                EnsureValidSagaHandlers(handlerType, discovered);
+            }
+
+            foreach (DiscoveredHandler handler in discovered)
+            {
+                _handlers.Add(handler);
+                MessageTypes.Register(handler.MessageClrType);
+            }
+        }
+        catch
+        {
+            _scannedTypes.Remove(handlerType);
+            throw;
         }
     }
 
@@ -125,5 +145,38 @@ public sealed class HandlerCatalog
         }
 
         return false;
+    }
+
+    private static bool IsSagaHandlerType(Type handlerType) =>
+        handlerType != typeof(Saga) && handlerType.IsAssignableTo(typeof(Saga));
+
+    private static void EnsureValidSagaHandlers(Type handlerType, List<DiscoveredHandler> discovered)
+    {
+        foreach (DiscoveredHandler handler in discovered)
+        {
+            if (handler.IsStatic)
+            {
+                throw new InvalidHandlerSignature(
+                    handlerType,
+                    $"Saga '{handlerType}' cannot use a static handler method.");
+            }
+
+            if (!SagaIdentityNaming.CanCorrelate(handler.MessageClrType, handlerType))
+            {
+                throw new InvalidHandlerSignature(
+                    handlerType,
+                    $"Saga '{handlerType}' message '{handler.MessageClrType}' is not correlatable.");
+            }
+        }
+
+        foreach (IGrouping<Type, DiscoveredHandler> group in discovered.GroupBy(handler => handler.MessageClrType))
+        {
+            if (group.Count() > 1)
+            {
+                throw new InvalidHandlerSignature(
+                    handlerType,
+                    $"Saga '{handlerType}' cannot declare more than one catalog method for '{group.Key}'.");
+            }
+        }
     }
 }

@@ -18,6 +18,17 @@ public sealed class DiscoveredOrderSaga : Saga
     public object Start(PlaceOrder message) => this;
 }
 
+public sealed class TimeoutWithNotFoundSaga : Saga
+{
+    public void Handle(OrderTimeout message)
+    {
+    }
+
+    public void NotFound(OrderTimeout message)
+    {
+    }
+}
+
 public sealed record LogIncident;
 
 public static class LogIncidentConsumer
@@ -41,7 +52,7 @@ public sealed class ThingHappenedConsumer
     public Task ConsumeAsync(ThingHappened message) => Task.CompletedTask;
 }
 
-public sealed record StartAsyncMessage;
+public sealed record StartAsyncMessage(int Id);
 
 public sealed class StartAsyncSaga : Saga
 {

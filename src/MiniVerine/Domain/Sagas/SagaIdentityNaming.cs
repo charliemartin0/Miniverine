@@ -14,29 +14,37 @@ public static class SagaIdentityNaming
         ArgumentNullException.ThrowIfNull(message);
         ArgumentNullException.ThrowIfNull(sagaType);
 
-        var properties = message.GetType().GetProperties(BindingFlags.Public | BindingFlags.Instance);
+        PropertyInfo? property = IdentityProperty(message.GetType(), sagaType);
+        return property is null ? new SagaId("") : ToSagaId(property.GetValue(message));
+    }
 
-        var attributed = Array.Find(
+    public static bool CanCorrelate(Type messageType, Type sagaType)
+    {
+        ArgumentNullException.ThrowIfNull(messageType);
+        ArgumentNullException.ThrowIfNull(sagaType);
+
+        return IdentityProperty(messageType, sagaType) is not null;
+    }
+
+    private static PropertyInfo? IdentityProperty(Type messageType, Type sagaType)
+    {
+        PropertyInfo[] properties = messageType.GetProperties(BindingFlags.Public | BindingFlags.Instance);
+
+        PropertyInfo? attributed = Array.Find(
             properties,
             property => property.GetCustomAttribute<SagaIdentityAttribute>(inherit: true) is not null);
         if (attributed is not null)
         {
-            return ToSagaId(attributed.GetValue(message));
+            return attributed;
         }
 
-        var bySagaTypeName = Array.Find(properties, property => property.Name == sagaType.Name + "Id");
+        PropertyInfo? bySagaTypeName = Array.Find(properties, property => property.Name == sagaType.Name + "Id");
         if (bySagaTypeName is not null)
         {
-            return ToSagaId(bySagaTypeName.GetValue(message));
+            return bySagaTypeName;
         }
 
-        var byId = Array.Find(properties, property => property.Name == "Id");
-        if (byId is not null)
-        {
-            return ToSagaId(byId.GetValue(message));
-        }
-
-        return new SagaId("");
+        return Array.Find(properties, property => property.Name == "Id");
     }
 
     private static SagaId ToSagaId(object? value)

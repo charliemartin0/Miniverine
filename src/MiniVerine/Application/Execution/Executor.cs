@@ -40,7 +40,8 @@ public sealed class Executor
         Envelope envelope,
         DiscoveredHandler handler,
         CancellationToken cancellationToken = default,
-        InvocationKind kind = InvocationKind.Invoke)
+        InvocationKind kind = InvocationKind.Invoke,
+        Func<object?>? resolveTarget = null)
     {
         ArgumentNullException.ThrowIfNull(envelope);
         ArgumentNullException.ThrowIfNull(handler);
@@ -51,7 +52,7 @@ public sealed class Executor
                 MiddlewareLayer.Outer,
                 envelope,
                 handler,
-                () => InvokeWithRetries(envelope, handler, cancellationToken, kind),
+                () => InvokeWithRetries(envelope, handler, cancellationToken, kind, resolveTarget),
                 cancellationToken);
         }
         catch (Exception exception) when (
@@ -68,7 +69,8 @@ public sealed class Executor
         Envelope envelope,
         DiscoveredHandler handler,
         CancellationToken cancellationToken,
-        InvocationKind kind)
+        InvocationKind kind,
+        Func<object?>? resolveTarget)
     {
         Envelope current = envelope;
         while (true)
@@ -80,7 +82,7 @@ public sealed class Executor
                     MiddlewareLayer.Inner,
                     current,
                     handler,
-                    () => InvokeOnce(current, handler, cancellationToken),
+                    () => InvokeOnce(current, handler, cancellationToken, resolveTarget),
                     cancellationToken);
             }
             catch (Exception exception)
@@ -181,9 +183,14 @@ public sealed class Executor
     private static async Task<object?> InvokeOnce(
         Envelope envelope,
         DiscoveredHandler handler,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken,
+        Func<object?>? resolveTarget)
     {
-        object? target = handler.IsStatic ? null : Activator.CreateInstance(handler.HandlerType);
+        object? target = handler.IsStatic
+            ? null
+            : resolveTarget is null
+                ? Activator.CreateInstance(handler.HandlerType)
+                : resolveTarget();
         object? result;
         try
         {

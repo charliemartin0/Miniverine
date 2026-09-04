@@ -3,6 +3,7 @@ using MiniVerine.Application.Discovery;
 using MiniVerine.Application.Discovery.Validators;
 using MiniVerine.Domain.Messaging;
 using MiniVerine.Domain.Messaging.ValueObjects;
+using MiniVerine.Tests.Application.Discovery.InvalidSignatures;
 using MiniVerine.Tests.Application.Discovery.Other;
 using MiniVerine.Tests.Application.Discovery.Scanned;
 using MiniVerine.Tests.Domain;
@@ -149,6 +150,7 @@ public sealed class HandlerCatalogTests
     {
         var catalog = new HandlerCatalog();
         catalog.ExcludeNamespace("MiniVerine.Tests.Application.Discovery.Other");
+        catalog.ExcludeNamespace("MiniVerine.Tests.Application.Discovery.InvalidSignatures");
         catalog.Scan(typeof(PongHandler).Assembly);
 
         Assert.IsType<MissingHandler>(catalog.Lookup(typeof(Pong)));
@@ -200,6 +202,63 @@ public sealed class HandlerCatalogTests
 
         Assert.False(result.IsValid);
         Assert.Contains(result.Errors, error => error.ErrorMessage.Contains("unique", StringComparison.OrdinalIgnoreCase));
+    }
+
+    [Fact]
+    public void scan_start_async_saga_succeeds_when_the_message_is_correlatable()
+    {
+        var catalog = new HandlerCatalog();
+        catalog.Scan(typeof(StartAsyncSaga));
+
+        var found = Assert.IsType<FoundHandlers>(catalog.Lookup(typeof(StartAsyncMessage)));
+        Assert.Contains(found.Handlers, handler =>
+            handler.HandlerType == typeof(StartAsyncSaga)
+            && handler.Method.Name == nameof(StartAsyncSaga.StartAsync));
+    }
+
+    [Fact]
+    public void lookup_does_not_return_not_found_as_a_catalog_handler()
+    {
+        var catalog = new HandlerCatalog();
+        catalog.Scan(typeof(TimeoutWithNotFoundSaga));
+
+        var found = Assert.IsType<FoundHandlers>(catalog.Lookup(typeof(OrderTimeout)));
+        Assert.All(found.Handlers, handler => Assert.NotEqual("NotFound", handler.Method.Name));
+        Assert.Contains(found.Handlers, handler => handler.Method.Name == nameof(TimeoutWithNotFoundSaga.Handle));
+    }
+
+    [Fact]
+    public void scan_uncorrelatable_saga_message_throws_invalid_handler_signature()
+    {
+        var catalog = new HandlerCatalog();
+
+        InvalidHandlerSignature error = Assert.Throws<InvalidHandlerSignature>(
+            () => catalog.Scan(typeof(UncorrelatableSaga)));
+
+        Assert.Equal(typeof(UncorrelatableSaga), error.HandlerType);
+        Assert.Empty(catalog.Handlers);
+    }
+
+    [Fact]
+    public void scan_start_and_handle_for_the_same_saga_message_throws()
+    {
+        var catalog = new HandlerCatalog();
+
+        InvalidHandlerSignature error = Assert.Throws<InvalidHandlerSignature>(
+            () => catalog.Scan(typeof(StartAndHandleSaga)));
+
+        Assert.Equal(typeof(StartAndHandleSaga), error.HandlerType);
+    }
+
+    [Fact]
+    public void scan_static_saga_handler_throws()
+    {
+        var catalog = new HandlerCatalog();
+
+        InvalidHandlerSignature error = Assert.Throws<InvalidHandlerSignature>(
+            () => catalog.Scan(typeof(StaticStartSaga)));
+
+        Assert.Equal(typeof(StaticStartSaga), error.HandlerType);
     }
 
     [Fact]
